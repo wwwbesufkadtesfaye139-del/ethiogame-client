@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; margin: 0; overflow: hidden; background: #0F1117; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2A2F45; border-radius: 4px; }
+  :root {
+    --brand: #F5A623;
+    --surface-1: #0F1117;
+    --surface-2: #181C27;
+    --surface-3: #1E2235;
+    --border:    #2A2F45;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
