@@ -2,13 +2,15 @@ import { motion } from 'framer-motion';
 import { useRef, useState } from 'react';
 
 const TELEBIRR_NUMBER = '0902873635';
+const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
 
 export default function DepositScreen({ onClose }) {
-  const [file,     setFile]     = useState(null);
-  const [preview,  setPreview]  = useState(null);
-  const [copied,   setCopied]   = useState(false);
-  const [submitted,setSubmitted]= useState(false);
-  const [loading,  setLoading]  = useState(false);
+  const [file,      setFile]      = useState(null);
+  const [preview,   setPreview]   = useState(null);
+  const [copied,    setCopied]    = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState('');
   const fileRef = useRef();
 
   const handleCopy = () => {
@@ -26,11 +28,48 @@ export default function DepositScreen({ onClose }) {
     reader.readAsDataURL(f);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!file) return;
     setLoading(true);
-    // Simulate submission — in prod: send to bot via Telegram sendDocument or REST
-    setTimeout(() => { setLoading(false); setSubmitted(true); }, 1400);
+    setError('');
+
+    try {
+      // ✅ Convert image to base64 to send to server
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // ✅ Get Telegram user info from WebApp
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+
+      // ✅ Send to Railway server which forwards photo to Telegram bot
+      const res = await fetch(`${SERVER_URL}/deposit/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image:      base64,
+          mimeType:   file.type,
+          telegramId: String(tgUser?.id || 'unknown'),
+          username:   tgUser?.username || tgUser?.first_name || 'unknown',
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setSubmitted(true);
+      } else {
+        setError(data.message || 'Submission failed. Please try again.');
+      }
+    } catch (err) {
+      console.error('Deposit error:', err);
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (submitted) {
@@ -55,7 +94,6 @@ export default function DepositScreen({ onClose }) {
 
   return (
     <div className="bg-[#181C27] rounded-t-2xl p-5 flex flex-col gap-5">
-      {/* Drag handle */}
       <div className="w-10 h-1 rounded-full bg-[#2A2F45] mx-auto -mt-1" />
 
       <div className="flex items-center justify-between">
@@ -65,21 +103,19 @@ export default function DepositScreen({ onClose }) {
         </motion.button>
       </div>
 
-      {/* Steps */}
       <div className="flex flex-col gap-3">
         {[
-          { n:'1', title:'Send to this Telebirr number', body: null },
-          { n:'2', title:'Take a screenshot of the receipt', body: null },
-          { n:'3', title:'Upload the screenshot below',   body: null },
-        ].map(s => (
-          <div key={s.n} className="flex items-start gap-3">
-            <span className="w-6 h-6 rounded-full bg-[#F5A623]/20 border border-[#F5A623]/40 text-[#F5A623] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{s.n}</span>
-            <p className="text-sm text-gray-300">{s.title}</p>
+          'Send to this Telebirr number',
+          'Take a screenshot of the receipt',
+          'Upload the screenshot below',
+        ].map((s, i) => (
+          <div key={i} className="flex items-start gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#F5A623]/20 border border-[#F5A623]/40 text-[#F5A623] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+            <p className="text-sm text-gray-300">{s}</p>
           </div>
         ))}
       </div>
 
-      {/* Telebirr number */}
       <div className="bg-[#1E2235] border border-[#F5A623]/30 rounded-2xl p-4 flex items-center justify-between">
         <div>
           <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Telebirr Number</p>
@@ -92,7 +128,6 @@ export default function DepositScreen({ onClose }) {
         </motion.button>
       </div>
 
-      {/* Screenshot upload */}
       <input ref={fileRef} type="file" accept="image/*" capture="environment"
         className="hidden" onChange={handleFile} />
 
@@ -109,11 +144,10 @@ export default function DepositScreen({ onClose }) {
         )}
       </motion.button>
 
-      {file && (
-        <p className="text-xs text-center text-gray-500 -mt-2 truncate">{file.name}</p>
-      )}
+      {file && <p className="text-xs text-center text-gray-500 -mt-2 truncate">{file.name}</p>}
 
-      {/* Important note */}
+      {error && <p className="text-xs text-red-400 text-center">{error}</p>}
+
       <div className="bg-amber-950/40 border border-amber-500/20 rounded-xl px-4 py-3">
         <p className="text-xs text-amber-400/90 leading-relaxed">
           ⚠️ After submitting, an admin manually reviews your receipt. Balance is credited within <strong>15 minutes</strong> during business hours.
@@ -126,7 +160,7 @@ export default function DepositScreen({ onClose }) {
         style={{ background: file ? '#F5A623' : undefined, backgroundColor: !file ? '#1E2235' : undefined, color: file ? '#0F1117' : '#4B5563', fontFamily:'Syne,sans-serif' }}>
         {loading ? (
           <span className="flex items-center justify-center gap-2">
-            <motion.span animate={{ rotate: 360 }} transition={{ repeat:Infinity, duration:0.8, ease:'linear' }}
+            <motion.span animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:0.8, ease:'linear' }}
               className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
             Submitting…
           </span>
