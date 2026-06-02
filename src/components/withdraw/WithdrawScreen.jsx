@@ -37,8 +37,10 @@ export default function WithdrawScreen({ onClose }) {
 
     setLoading(true);
 
-    // ✅ Send withdraw request through socket
+    // ✅ Send withdraw request through socket with telegramId
+    const telegramId = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
     socket.emit('user:requestWithdraw', {
+      telegramId,
       amount: parseFloat(amount),
       phone:  phone.replace(/\s/g, ''),
     }, (res) => {
