@@ -1,14 +1,8 @@
-import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { useGame } from '../context/GameContext';
 import DepositScreen from '../components/deposit/DepositScreen';
-
-const TX_MOCK = [
-  { id:1, type:'deposit',    amount:200, status:'approved', date:'Today 14:32' },
-  { id:2, type:'win',        amount:450, status:'approved', date:'Today 11:05' },
-  { id:3, type:'stake',      amount:-50, status:'approved', date:'Yesterday'  },
-  { id:4, type:'deposit',    amount:100, status:'pending',  date:'Yesterday'  },
-  { id:5, type:'withdrawal', amount:-200,status:'approved', date:'2 days ago' },
-];
+import WithdrawScreen from '../components/withdraw/WithdrawScreen';
 
 const TX_ICONS   = { deposit:'📥', win:'🏆', stake:'🎮', withdrawal:'📤' };
 const TX_COLORS  = { deposit:'text-green-400', win:'text-[#F5A623]', stake:'text-gray-400', withdrawal:'text-red-400' };
@@ -19,8 +13,20 @@ const STATUS_BADGE = {
 };
 
 export default function WalletScreen() {
-  const [showDeposit, setShowDeposit] = useState(false);
-  const balance = 120;
+  const { balance, socket } = useGame();
+  const [showDeposit,  setShowDeposit]  = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [transactions, setTransactions] = useState([]);
+
+  // ✅ Fetch real transactions from server when screen opens
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit('user:getTransactions', {}, (res) => {
+      if (res?.success && res.transactions) {
+        setTransactions(res.transactions);
+      }
+    });
+  }, [socket]);
 
   return (
     <div className="flex flex-col gap-4 p-4 pb-6">
@@ -28,8 +34,9 @@ export default function WalletScreen() {
       <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-[#1E2235] to-[#181C27] border border-[#F5A623]/20 p-5">
         <div className="absolute top-0 right-0 w-24 h-24 bg-[#F5A623]/10 rounded-full blur-2xl translate-x-1/2 -translate-y-1/2" />
         <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Available Balance</p>
+        {/* ✅ Use real balance from GameContext */}
         <p className="text-4xl font-extrabold text-[#F5A623] font-mono mb-4" style={{fontFamily:'Syne,sans-serif'}}>
-          {balance.toFixed(2)} <span className="text-xl text-[#F5A623]/60">Br</span>
+          {(balance || 0).toFixed(2)} <span className="text-xl text-[#F5A623]/60">Br</span>
         </p>
         <div className="flex gap-2">
           <motion.button whileTap={{ scale:0.92 }} onClick={() => setShowDeposit(true)}
@@ -37,7 +44,8 @@ export default function WalletScreen() {
             style={{fontFamily:'Syne,sans-serif'}}>
             + Deposit
           </motion.button>
-          <motion.button whileTap={{ scale:0.92 }}
+          {/* ✅ Withdraw button now has onClick handler */}
+          <motion.button whileTap={{ scale:0.92 }} onClick={() => setShowWithdraw(true)}
             className="flex-1 py-2.5 rounded-xl bg-[#1E2235] border border-[#2A2F45] text-gray-400 text-sm font-bold"
             style={{fontFamily:'Syne,sans-serif'}}>
             Withdraw
@@ -63,23 +71,25 @@ export default function WalletScreen() {
       <div className="bg-[#181C27] border border-[#2A2F45] rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-[#2A2F45] flex items-center justify-between">
           <h3 className="font-bold text-white text-sm" style={{fontFamily:'Syne,sans-serif'}}>Transaction History</h3>
-          <span className="text-xs text-gray-500">{TX_MOCK.length} records</span>
+          <span className="text-xs text-gray-500">{transactions.length} records</span>
         </div>
         <div className="flex flex-col divide-y divide-[#2A2F45]">
-          {TX_MOCK.map((tx, i) => (
-            <motion.div key={tx.id} initial={{ opacity:0, x:-8 }} animate={{ opacity:1, x:0 }}
+          {transactions.length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-6">No transactions yet</p>
+          ) : transactions.map((tx, i) => (
+            <motion.div key={tx._id || i} initial={{ opacity:0, x:-8 }} animate={{ opacity:1, x:0 }}
               transition={{ delay: i*0.05 }}
               className="flex items-center gap-3 px-4 py-3.5">
-              <span className="text-xl flex-shrink-0">{TX_ICONS[tx.type]}</span>
+              <span className="text-xl flex-shrink-0">{TX_ICONS[tx.type] || '💳'}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white capitalize">{tx.type}</p>
-                <p className="text-xs text-gray-500">{tx.date}</p>
+                <p className="text-xs text-gray-500">{new Date(tx.createdAt).toLocaleDateString()}</p>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className={`text-sm font-mono font-bold ${TX_COLORS[tx.type]}`}>
+                <span className={`text-sm font-mono font-bold ${TX_COLORS[tx.type] || 'text-white'}`}>
                   {tx.amount > 0 ? '+' : ''}{tx.amount} Br
                 </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_BADGE[tx.status]}`}>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_BADGE[tx.status] || ''}`}>
                   {tx.status}
                 </span>
               </div>
@@ -101,18 +111,36 @@ export default function WalletScreen() {
       </div>
 
       {/* Deposit sheet */}
-      {showDeposit && (
-        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
-          className="fixed inset-0 z-50 bg-black/70 flex items-end"
-          onClick={() => setShowDeposit(false)}>
-          <motion.div initial={{ y:'100%' }} animate={{ y:0 }}
-            transition={{ type:'spring', damping:25, stiffness:300 }}
-            className="w-full rounded-t-2xl overflow-y-auto max-h-[92vh]"
-            onClick={e => e.stopPropagation()}>
-            <DepositScreen onClose={() => setShowDeposit(false)} />
+      <AnimatePresence>
+        {showDeposit && (
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-end"
+            onClick={() => setShowDeposit(false)}>
+            <motion.div initial={{ y:'100%' }} animate={{ y:0 }} exit={{ y:'100%' }}
+              transition={{ type:'spring', damping:25, stiffness:300 }}
+              className="w-full rounded-t-2xl overflow-y-auto max-h-[92vh]"
+              onClick={e => e.stopPropagation()}>
+              <DepositScreen onClose={() => setShowDeposit(false)} />
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
+        )}
+      </AnimatePresence>
+
+      {/* ✅ Withdraw sheet */}
+      <AnimatePresence>
+        {showWithdraw && (
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-end"
+            onClick={() => setShowWithdraw(false)}>
+            <motion.div initial={{ y:'100%' }} animate={{ y:0 }} exit={{ y:'100%' }}
+              transition={{ type:'spring', damping:25, stiffness:300 }}
+              className="w-full rounded-t-2xl overflow-y-auto max-h-[92vh]"
+              onClick={e => e.stopPropagation()}>
+              <WithdrawScreen onClose={() => setShowWithdraw(false)} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
-}
+      }
