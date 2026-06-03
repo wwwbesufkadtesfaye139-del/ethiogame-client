@@ -5,12 +5,19 @@ const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
 
 const GameCtx = createContext(null);
 
-export const GameProvider = ({ children, telegramId, username }) => {
+export const GameProvider = ({ children, telegramId: propTelegramId, username }) => {
   const socketRef    = useRef(null);
   const [connected,  setConnected]  = useState(false);
   const [balance,    setBalance]    = useState(0);
   const [bingoState, setBingoState] = useState(null);
   const [ludoState,  setLudoState]  = useState(null);
+
+  // ✅ Get telegramId from prop OR directly from Telegram WebApp
+  const telegramId = String(
+    propTelegramId ||
+    window?.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
+    'dev'
+  );
 
   useEffect(() => {
     const socket = io(SERVER_URL, { transports: ['websocket', 'polling'], reconnection: true });
