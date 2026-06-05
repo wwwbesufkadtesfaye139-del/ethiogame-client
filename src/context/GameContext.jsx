@@ -126,20 +126,23 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
   };
 
   // ─── BINGO ACTIONS ─────────────────────────────────────────────────────────
-  const listBingoRooms = (stake, cb) =>
-    emit('bingo:listRooms', { stake }, cb);
+  const getBingoCards = (stake, cb) =>
+    emit('bingo:getCards', { stake }, cb);
 
-  const joinBingo = (stake, pickedNumber, cb) =>
-    emit('bingo:join', { telegramId, username, stake, pickedNumber }, (res) => {
+  const buyBingoCard = (stake, cardNumber, cb) =>
+    emit('bingo:buyCard', { telegramId, username, stake, cardNumber }, (res) => {
       if (res?.success) {
-        setBingoState({
-          roomId: res.roomId,
-          card: res.card,
-          stake,
-          pickedNumber,
-          playerCount: res.playerCount,
-          calledNumbers: [],
-          state: 'waiting',
+        setBingoState(prev => {
+          const existingCards = prev?.ownedCards || [];
+          return {
+            ...prev,
+            roomId:      res.roomId,
+            ownedCards:  [...existingCards, { cardNumber: res.cardNumber, card: res.card }],
+            stake,
+            playerCount: res.playerCount,
+            calledNumbers: prev?.calledNumbers || [],
+            state:       prev?.state || 'waiting',
+          };
         });
         if (res.newBalance !== undefined) setBalance(res.newBalance);
       }
@@ -201,13 +204,13 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
         connected,
         balance,
         setBalance,
-        refreshBalance,   // ✅ New — call this to force refresh balance anywhere
+        refreshBalance,
         bingoState,
         setBingoState,
         ludoState,
         setLudoState,
-        listBingoRooms,
-        joinBingo,
+        getBingoCards,    // ✅ NEW
+        buyBingoCard,     // ✅ NEW
         claimBingo,
         leaveGame,
         createLudoRoom,
