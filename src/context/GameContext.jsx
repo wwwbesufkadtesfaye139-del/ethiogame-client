@@ -129,18 +129,18 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
   const listBingoRooms = (stake, cb) =>
     emit('bingo:listRooms', { stake }, cb);
 
-  const joinBingo = (stake, cb) =>
-    emit('bingo:join', { telegramId, username, stake }, (res) => {
+  const joinBingo = (stake, pickedNumber, cb) =>
+    emit('bingo:join', { telegramId, username, stake, pickedNumber }, (res) => {
       if (res?.success) {
         setBingoState({
           roomId: res.roomId,
           card: res.card,
           stake,
+          pickedNumber,
           playerCount: res.playerCount,
           calledNumbers: [],
           state: 'waiting',
         });
-        // ✅ Update balance from server response if provided
         if (res.newBalance !== undefined) setBalance(res.newBalance);
       }
       cb?.(res);
