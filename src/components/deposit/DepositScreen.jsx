@@ -28,41 +28,13 @@ export default function DepositScreen({ onClose }) {
     reader.readAsDataURL(f);
   };
 
-  // ── Compress image to max 800px wide, quality 0.7 ───────────────────────────
-  const compressImage = (file) =>
-    new Promise((resolve) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        try {
-          const MAX = 800;
-          let { width, height } = img;
-          if (width > MAX) { height = Math.round((height * MAX) / width); width = MAX; }
-          const canvas = document.createElement('canvas');
-          canvas.width  = width;
-          canvas.height = height;
-          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-          URL.revokeObjectURL(url);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          resolve(dataUrl.split(',')[1]);
-        } catch (e) {
-          // Canvas failed — fall back to raw FileReader
-          URL.revokeObjectURL(url);
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(file);
-        }
-      };
-      img.onerror = () => {
-        // Image failed to load — fall back to raw FileReader
-        URL.revokeObjectURL(url);
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-      };
-      img.src = url;
+  // ── Read image as base64 ─────────────────────────────────────────────────────
+  const readImage = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
     });
 
   const handleSubmit = async () => {
@@ -71,8 +43,8 @@ export default function DepositScreen({ onClose }) {
     setError('');
 
     try {
-      // ✅ Compress image before sending (reduces 3-5MB → ~100-200KB)
-      const base64 = await compressImage(file);
+      // ✅ Read image as base64
+      const base64 = await readImage(file);
 
       if (!base64) {
         setError('Could not read image. Please try a different photo.');
@@ -173,7 +145,7 @@ export default function DepositScreen({ onClose }) {
         </motion.button>
       </div>
 
-      <input ref={fileRef} type="file" accept="image/*" capture="environment"
+      <input ref={fileRef} type="file" accept="image/*"
         className="hidden" onChange={handleFile} />
 
       <motion.button whileTap={{ scale:0.97 }} onClick={() => fileRef.current?.click()}
