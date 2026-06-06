@@ -28,19 +28,36 @@ export default function DepositScreen({ onClose }) {
     reader.readAsDataURL(f);
   };
 
+  // ── Compress image to max 800px wide, quality 0.7 ───────────────────────────
+  const compressImage = (file) =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const MAX = 800;
+        let { width, height } = img;
+        if (width > MAX) { height = Math.round((height * MAX) / width); width = MAX; }
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+        // Returns base64 string without the data:image/...;base64, prefix
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        resolve(dataUrl.split(',')[1]);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+
   const handleSubmit = async () => {
     if (!file) return;
     setLoading(true);
     setError('');
 
     try {
-      // ✅ Convert image to base64 to send to server
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload  = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // ✅ Compress image before sending (reduces 3-5MB → ~100-200KB)
+      const base64 = await compressImage(file);
 
       // ✅ Get Telegram user info from WebApp
       const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
@@ -51,7 +68,7 @@ export default function DepositScreen({ onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image:      base64,
-          mimeType:   file.type,
+          mimeType:   'image/jpeg',
           telegramId: String(tgUser?.id || 'unknown'),
           username:   tgUser?.username || tgUser?.first_name || 'unknown',
         }),
