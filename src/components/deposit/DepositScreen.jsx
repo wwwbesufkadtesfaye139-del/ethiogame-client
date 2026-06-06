@@ -29,13 +29,18 @@ export default function DepositScreen({ onClose }) {
   };
 
   // ── Read image as base64 ─────────────────────────────────────────────────────
-  const readImage = (file) =>
-    new Promise((resolve, reject) => {
+  const readImage = async (file) => {
+    const url = URL.createObjectURL(file);
+    const res = await fetch(url);
+    const blob = await res.blob();
+    URL.revokeObjectURL(url);
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload  = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = (e) => reject(e);
-      reader.readAsDataURL(file);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
+  };
 
   const handleSubmit = async () => {
     if (!file) return;
