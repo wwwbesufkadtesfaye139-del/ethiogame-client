@@ -273,12 +273,16 @@ export default function BingoScreen() {
 
   const handleSelectStake = useCallback((stake) => {
     setStake(stake);
+    setView('loading'); // ✅ show loading state
     getBingoCards(stake, (res) => {
       if (res?.success) {
         setRoomCards(res.cards || []);
         setRoomId(res.roomId);
         setRoomState(res.state);
         setView('cards');
+      } else {
+        setBuyError(res?.message || 'Failed to load cards. Please try again.');
+        setView('stakes');
       }
     });
   }, [getBingoCards]);
@@ -356,9 +360,25 @@ export default function BingoScreen() {
         </button>
       )}
 
+      {/* ── Loading view ── */}
+      {view === 'loading' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
+          className="flex flex-col items-center justify-center gap-4 py-16">
+          <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:0.8, ease:'linear' }}
+            className="w-10 h-10 border-3 border-[#F5A623] border-t-transparent rounded-full" />
+          <p className="text-gray-400 text-sm">Loading cards for {selectedStake} Birr room…</p>
+        </motion.div>
+      )}
+
       {/* ── Stakes view ── */}
       {view === 'stakes' && (
         <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
+          {buyError && (
+            <div className="bg-red-950/40 border border-red-500/30 rounded-xl px-4 py-3 mb-3 text-center">
+              <p className="text-red-400 text-sm">{buyError}</p>
+              <button onClick={() => setBuyError('')} className="text-xs text-gray-500 mt-1">Dismiss</button>
+            </div>
+          )}
           <StakeSelector onSelect={handleSelectStake} balance={balance} />
         </motion.div>
       )}
@@ -417,4 +437,4 @@ export default function BingoScreen() {
       )}
     </div>
   );
-}
+      }
