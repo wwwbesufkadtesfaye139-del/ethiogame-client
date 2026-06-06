@@ -28,67 +28,40 @@ export default function DepositScreen({ onClose }) {
     reader.readAsDataURL(f);
   };
 
-  // ── Read image as base64 ─────────────────────────────────────────────────────
-  const readImage = async (file) => {
-    const url = URL.createObjectURL(file);
-    const res = await fetch(url);
-    const blob = await res.blob();
-    URL.revokeObjectURL(url);
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload  = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
   const handleSubmit = async () => {
     if (!file) return;
     setLoading(true);
     setError('');
 
     try {
-      // ✅ Read image as base64
-      const base64 = await readImage(file);
-
-      if (!base64) {
-        setError('Could not read image. Please try a different photo.');
-        setLoading(false);
-        return;
-      }
-
-      // ✅ Get Telegram user info from WebApp
-      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      // ✅ Get Telegram user info
+      const tgUser     = window.Telegram?.WebApp?.initDataUnsafe?.user;
       const telegramId = String(tgUser?.id || 'unknown');
       const username   = tgUser?.username || tgUser?.first_name || 'unknown';
 
-      setError(`Sending to server... (user: ${telegramId})`);
+      // ✅ Send as FormData — no FileReader, no base64, no canvas
+      // This is the most compatible way with Telegram WebView
+      const formData = new FormData();
+      formData.append('photo',      file);
+      formData.append('telegramId', telegramId);
+      formData.append('username',   username);
 
-      // ✅ Send to Railway server which forwards photo to Telegram bot
       const res = await fetch(`${SERVER_URL}/deposit/upload`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image:      base64,
-          mimeType:   'image/jpeg',
-          telegramId,
-          username,
-        }),
+        body:   formData,
+        // ✅ No Content-Type header — browser sets it automatically with boundary
       });
-
-      setError(`Server responded: ${res.status}`);
 
       const data = await res.json();
 
       if (data.success) {
-        setError('');
         setSubmitted(true);
       } else {
         setError(data.message || 'Submission failed. Please try again.');
       }
     } catch (err) {
       console.error('Deposit error:', err);
-      setError(`Error: ${err.message || err.toString()}`);
+      setError(`Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
