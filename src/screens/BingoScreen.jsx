@@ -273,8 +273,24 @@ export default function BingoScreen() {
 
   const handleSelectStake = useCallback((stake) => {
     setStake(stake);
-    setView('loading'); // ✅ show loading state
+    setBuyError('');
+    setView('loading');
+
+    // ✅ Check if socket is connected first
+    if (!getBingoCards) {
+      setBuyError('Not connected to server. Please try again.');
+      setView('stakes');
+      return;
+    }
+
+    // ✅ Add 10 second timeout in case server doesn't respond
+    const timeout = setTimeout(() => {
+      setBuyError('Server took too long. Please try again.');
+      setView('stakes');
+    }, 10000);
+
     getBingoCards(stake, (res) => {
+      clearTimeout(timeout);
       if (res?.success) {
         setRoomCards(res.cards || []);
         setRoomId(res.roomId);
@@ -437,4 +453,4 @@ export default function BingoScreen() {
       )}
     </div>
   );
-      }
+          }
