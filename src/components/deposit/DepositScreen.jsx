@@ -30,23 +30,38 @@ export default function DepositScreen({ onClose }) {
 
   // ── Compress image to max 800px wide, quality 0.7 ───────────────────────────
   const compressImage = (file) =>
-    new Promise((resolve, reject) => {
+    new Promise((resolve) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const MAX = 800;
-        let { width, height } = img;
-        if (width > MAX) { height = Math.round((height * MAX) / width); width = MAX; }
-        const canvas = document.createElement('canvas');
-        canvas.width  = width;
-        canvas.height = height;
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        URL.revokeObjectURL(url);
-        // Returns base64 string without the data:image/...;base64, prefix
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        resolve(dataUrl.split(',')[1]);
+        try {
+          const MAX = 800;
+          let { width, height } = img;
+          if (width > MAX) { height = Math.round((height * MAX) / width); width = MAX; }
+          const canvas = document.createElement('canvas');
+          canvas.width  = width;
+          canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          URL.revokeObjectURL(url);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve(dataUrl.split(',')[1]);
+        } catch (e) {
+          // Canvas failed — fall back to raw FileReader
+          URL.revokeObjectURL(url);
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        }
       };
-      img.onerror = reject;
+      img.onerror = () => {
+        // Image failed to load — fall back to raw FileReader
+        URL.revokeObjectURL(url);
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      };
       img.src = url;
     });
 
@@ -58,6 +73,12 @@ export default function DepositScreen({ onClose }) {
     try {
       // ✅ Compress image before sending (reduces 3-5MB → ~100-200KB)
       const base64 = await compressImage(file);
+
+      if (!base64) {
+        setError('Could not read image. Please try a different photo.');
+        setLoading(false);
+        return;
+      }
 
       // ✅ Get Telegram user info from WebApp
       const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
