@@ -119,7 +119,18 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
   // ─── EMIT HELPER ───────────────────────────────────────────────────────────
   const emit = (ev, data, cb) => {
     if (!socketRef.current?.connected) {
-      cb?.({ success: false, message: 'Not connected to server. Please wait.' });
+      // ✅ Wait up to 3 seconds for connection before giving up
+      let attempts = 0;
+      const retry = setInterval(() => {
+        attempts++;
+        if (socketRef.current?.connected) {
+          clearInterval(retry);
+          socketRef.current.emit(ev, data, cb);
+        } else if (attempts >= 6) {
+          clearInterval(retry);
+          cb?.({ success: false, message: 'Not connected to server. Please wait.' });
+        }
+      }, 500);
       return;
     }
     socketRef.current.emit(ev, data, cb);
