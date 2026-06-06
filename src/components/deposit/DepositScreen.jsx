@@ -61,6 +61,10 @@ export default function DepositScreen({ onClose }) {
 
       // ✅ Get Telegram user info from WebApp
       const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      const telegramId = String(tgUser?.id || 'unknown');
+      const username   = tgUser?.username || tgUser?.first_name || 'unknown';
+
+      setError(`Sending to server... (user: ${telegramId})`);
 
       // ✅ Send to Railway server which forwards photo to Telegram bot
       const res = await fetch(`${SERVER_URL}/deposit/upload`, {
@@ -69,21 +73,24 @@ export default function DepositScreen({ onClose }) {
         body: JSON.stringify({
           image:      base64,
           mimeType:   'image/jpeg',
-          telegramId: String(tgUser?.id || 'unknown'),
-          username:   tgUser?.username || tgUser?.first_name || 'unknown',
+          telegramId,
+          username,
         }),
       });
+
+      setError(`Server responded: ${res.status}`);
 
       const data = await res.json();
 
       if (data.success) {
+        setError('');
         setSubmitted(true);
       } else {
         setError(data.message || 'Submission failed. Please try again.');
       }
     } catch (err) {
       console.error('Deposit error:', err);
-      setError('Network error. Please check your connection and try again.');
+      setError(`Error: ${err.message || err.toString()}`);
     } finally {
       setLoading(false);
     }
