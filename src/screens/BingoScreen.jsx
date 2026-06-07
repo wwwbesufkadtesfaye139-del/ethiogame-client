@@ -169,11 +169,41 @@ const CardGrid = ({ stake, roomCards, selectedCards, onToggleCard, onBuy, balanc
 };
 
 // ── Active Game View ──────────────────────────────────────────────────────────
-const ActiveGame = ({ bingoState, onClaim, claimResult }) => {
+const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
   const calledNumbers = bingoState?.calledNumbers || [];
   const lastDrawn     = bingoState?.lastDrawn;
   const ownedCards    = bingoState?.ownedCards    || [];
   const [activeCard,  setActiveCard] = useState(0);
+
+  // Bug 3 Fix: When game is finished show winner announcement for all other players.
+  // (The actual winner already sees BingoVictory via the victory state in the parent.)
+  if (bingoState?.state === 'finished') {
+    const winner = bingoState?.winners?.[0];
+    const prize  = bingoState?.winnerPrize;
+    return (
+      <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
+        className="flex flex-col items-center gap-6 py-8">
+        <div className="text-6xl">🏆</div>
+        <div className="bg-[#181C27] border-2 border-[#F5A623]/50 rounded-2xl p-6 flex flex-col items-center gap-3 text-center w-full">
+          <p className="text-xs text-gray-500 uppercase tracking-widest">Game Over</p>
+          <h2 className="text-2xl font-extrabold text-[#F5A623]" style={{fontFamily:'Syne,sans-serif'}}>
+            {winner?.username || 'A player'} Won!
+          </h2>
+          {prize && (
+            <p className="text-green-400 font-bold text-lg">Prize: {prize} Birr</p>
+          )}
+          <p className="text-xs text-gray-500 mt-1">
+            {calledNumbers.length} numbers were called
+          </p>
+        </div>
+        <motion.button whileTap={{ scale:0.94 }} onClick={onBack}
+          className="px-8 py-3 rounded-xl bg-[#1E2235] border border-[#2A2F45] text-white font-bold text-sm"
+          style={{fontFamily:'Syne,sans-serif'}}>
+          ← Back to Lobby
+        </motion.button>
+      </motion.div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -448,7 +478,8 @@ export default function BingoScreen() {
       {/* ── Game view ── */}
       {view === 'game' && (
         <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
-          <ActiveGame bingoState={bingoState} onClaim={handleClaim} claimResult={claimResult} />
+          <ActiveGame bingoState={bingoState} onClaim={handleClaim} claimResult={claimResult}
+            onBack={() => { setView('stakes'); setBingoState(null); setRoomId(null); setRoomCards([]); setSelected([]); setStake(null); setClaimResult(null); }} />
         </motion.div>
       )}
     </div>
