@@ -7,18 +7,29 @@ import HomeScreen   from './screens/HomeScreen';
 import BingoScreen  from './screens/BingoScreen';
 import LudoScreen   from './screens/LudoScreen';
 import WalletScreen from './screens/WalletScreen';
+import AdminScreen  from './screens/AdminScreen';
 import DepositScreen from './components/deposit/DepositScreen';
 import { AnimatePresence, motion } from 'framer-motion';
 
-const SCREENS = { home: HomeScreen, bingo: BingoScreen, ludo: LudoScreen, wallet: WalletScreen };
+// 👇 Must match ADMIN_TELEGRAM_ID in AdminScreen.jsx
+const ADMIN_TELEGRAM_ID = '6584576909';
+
+const SCREENS = {
+  home:   HomeScreen,
+  bingo:  BingoScreen,
+  ludo:   LudoScreen,
+  wallet: WalletScreen,
+  admin:  AdminScreen,
+};
 
 function AppInner() {
-  const { balance } = useGame();
-  const { user }    = useTelegram();
+  const { balance }    = useGame();
+  const { user }       = useTelegram();
   const [screen, setScreen]       = useState('home');
   const [showDeposit, setDeposit] = useState(false);
 
-  const Screen = SCREENS[screen] || HomeScreen;
+  const isAdmin = String(user?.id) === String(ADMIN_TELEGRAM_ID);
+  const Screen  = SCREENS[screen] || HomeScreen;
 
   return (
     <div className="flex flex-col h-full bg-[#0F1117] text-white overflow-hidden" style={{fontFamily:'DM Sans,sans-serif'}}>
@@ -35,7 +46,7 @@ function AppInner() {
         </AnimatePresence>
       </div>
 
-      <BottomNav active={screen} onChange={setScreen} />
+      <BottomNav active={screen} onChange={setScreen} isAdmin={isAdmin} />
 
       <AnimatePresence>
         {showDeposit && (
