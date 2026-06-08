@@ -294,6 +294,21 @@ export default function BingoScreen() {
 
   const roomStateRef = bingoState?.state;
 
+  // Resume: when user navigates away and comes back, restore the correct view.
+  // This runs once on mount — if we're already mid-game, skip the stakes screen.
+  useEffect(() => {
+    if (!bingoState) return;
+    if (bingoState.state === 'active') {
+      if (bingoState.stake)  setStake(bingoState.stake);
+      if (bingoState.roomId) setRoomId(bingoState.roomId);
+      setView('game');
+    } else if (bingoState.state === 'countdown' || bingoState.state === 'waiting') {
+      if (bingoState.stake)  setStake(bingoState.stake);
+      if (bingoState.roomId) setRoomId(bingoState.roomId);
+      setView('cards');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Switch to game view when game starts
   useEffect(() => {
     if (roomStateRef === 'active' && view === 'waiting') {
