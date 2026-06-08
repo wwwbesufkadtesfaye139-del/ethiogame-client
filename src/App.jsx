@@ -23,7 +23,8 @@ const SCREENS = {
 };
 
 function AppInner() {
-  const { balance }    = useGame();
+  // FIX: use real `connected` state from GameContext instead of hardcoding true
+  const { balance, connected } = useGame();
   const { user }       = useTelegram();
   const [screen, setScreen]       = useState('home');
   const [showDeposit, setDeposit] = useState(false);
@@ -33,7 +34,8 @@ function AppInner() {
 
   return (
     <div className="flex flex-col h-full bg-[#0F1117] text-white overflow-hidden" style={{fontFamily:'DM Sans,sans-serif'}}>
-      <WalletBar user={user} balance={balance} connected={true} onDepositClick={() => setDeposit(true)} />
+      {/* FIX: pass real `connected` so the online dot is accurate */}
+      <WalletBar user={user} balance={balance} connected={connected} onDepositClick={() => setDeposit(true)} />
 
       <div className="flex-1 overflow-hidden relative">
         <AnimatePresence mode="wait">
