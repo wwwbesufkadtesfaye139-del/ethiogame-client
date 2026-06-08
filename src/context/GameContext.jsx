@@ -216,6 +216,7 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
         balance,
         setBalance,
         refreshBalance,
+        telegramId,       // Bug 4 Fix: export real telegramId so screens don't hardcode it
         bingoState,
         setBingoState,
         ludoState,
