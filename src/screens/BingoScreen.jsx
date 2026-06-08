@@ -321,6 +321,10 @@ export default function BingoScreen() {
     setBuyError('');
     setView('loading');
 
+    // Clear cards from any previous room so they don't bleed into this room's waiting screen
+    setBingoState(prev => prev ? { ...prev, ownedCards: [], roomId: null } : null);
+    setSelected([]);
+
     // ✅ Check if socket is connected first
     if (!getBingoCards) {
       setBuyError('Not connected to server. Please try again.');
@@ -346,7 +350,7 @@ export default function BingoScreen() {
         setView('stakes');
       }
     });
-  }, [getBingoCards]);
+  }, [getBingoCards, setBingoState]);
 
   const handleToggleCard = (cardNumber) => {
     setSelected(prev =>
