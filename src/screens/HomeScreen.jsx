@@ -20,7 +20,7 @@ const GameCard = ({ emoji, title, desc, tag, tagColor, onClick }) => (
 );
 
 export default function HomeScreen({ onNavigate }) {
-  const { socket } = useGame();
+  const { socket, bingoState, ludoState } = useGame();
   const [stats, setStats] = useState({
     liveRooms: '...',
     online:    '...',
@@ -79,6 +79,53 @@ export default function HomeScreen({ onNavigate }) {
           </motion.button>
         </div>
       </div>
+
+      {/* ── Resume Banner — shows when user has an active game ── */}
+      {(bingoState?.state === 'active' || bingoState?.state === 'countdown') && (
+        <motion.button
+          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => onNavigate('bingo')}
+          className="w-full flex items-center justify-between gap-3 bg-[#F5A623]/10 border border-[#F5A623]/40 rounded-2xl px-4 py-3"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-pulse">🎯</span>
+            <div className="text-left">
+              <p className="text-xs text-[#F5A623] font-bold uppercase tracking-wider">Active Bingo Game</p>
+              <p className="text-sm text-white font-semibold">
+                {bingoState.stake} Birr room · {bingoState.playerCount || 0} player(s)
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1.5 rounded-xl bg-[#F5A623] text-black text-xs font-bold"
+            style={{fontFamily:'Syne,sans-serif'}}>
+            Resume →
+          </span>
+        </motion.button>
+      )}
+
+      {(ludoState?.state === 'active') && (
+        <motion.button
+          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => onNavigate('ludo')}
+          className="w-full flex items-center justify-between gap-3 bg-purple-500/10 border border-purple-500/40 rounded-2xl px-4 py-3"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-pulse">🎲</span>
+            <div className="text-left">
+              <p className="text-xs text-purple-400 font-bold uppercase tracking-wider">Active Ludo Game</p>
+              <p className="text-sm text-white font-semibold">
+                {ludoState.stake} Birr room · {ludoState.players?.length || 0} player(s)
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1.5 rounded-xl bg-purple-500 text-white text-xs font-bold"
+            style={{fontFamily:'Syne,sans-serif'}}>
+            Resume →
+          </span>
+        </motion.button>
+      )}
 
       {/* ✅ Live stats — real data from server */}
       <div className="grid grid-cols-3 gap-2">
