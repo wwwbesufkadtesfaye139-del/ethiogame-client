@@ -33,6 +33,23 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
           setBalance(res.balance);
         }
       });
+      // Resume: check if this user is mid-game after reconnect
+      if (telegramId && telegramId !== 'dev') {
+        socket.emit('bingo:rejoin', { telegramId }, (res) => {
+          if (res?.inGame) {
+            setBingoState(prev => ({
+              ...prev,
+              roomId:        res.roomId,
+              stake:         res.stake,
+              calledNumbers: res.calledNumbers,
+              ownedCards:    res.ownedCards,
+              state:         'active',
+              playerCount:   res.playerCount,
+              winnerPrize:   res.winnerPrize,
+            }));
+          }
+        });
+      }
     });
 
     socket.on('disconnect', () => setConnected(false));
