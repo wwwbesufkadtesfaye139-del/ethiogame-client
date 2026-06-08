@@ -11,16 +11,19 @@ const MOCK_PLAYERS = [
 ];
 
 export default function LudoScreen() {
-  const { ludoState, createLudoRoom, rollDice, movePiece } = useGame();
-  const [showCreator, setShowCreator] = useState(false);
-  const [showRooms,   setShowRooms]   = useState(false);
-  const [rolling,     setRolling]     = useState(false);
-  const [diceValue,   setDiceValue]   = useState(null);
+  const { ludoState, createLudoRoom, rollDice, movePiece, listLudoRooms, joinLudoRoom, telegramId } = useGame();
+  const [showCreator,  setShowCreator]  = useState(false);
+  const [showRooms,    setShowRooms]    = useState(false);
+  const [rolling,      setRolling]      = useState(false);
+  const [diceValue,    setDiceValue]    = useState(null);
+  const [ludoRooms,    setLudoRooms]    = useState([]);    // Bug 5 Fix: real rooms from server
+  const [loadingRooms, setLoadingRooms] = useState(false); // Bug 5 Fix: loading state
 
-  const telegramId = 'me'; // from context in prod
+  // Bug 4 Fix: telegramId now comes from GameContext (real Telegram user ID)
+  // Removed: const telegramId = 'me';
   const gameState  = ludoState?.state || 'idle';
   const players    = ludoState?.players || MOCK_PLAYERS;
-  const currentTurn = ludoState?.currentTurnTelegramId || 'me';
+  const currentTurn = ludoState?.currentTurnTelegramId || '';
   const boardState  = ludoState?.boardState || [];
   const isMyTurn    = currentTurn === telegramId;
 
@@ -79,7 +82,17 @@ export default function LudoScreen() {
           style={{fontFamily:'Syne,sans-serif'}}>
           + Create Room
         </motion.button>
-        <motion.button whileTap={{ scale:0.94 }} onClick={() => setShowRooms(r => !r)}
+        <motion.button whileTap={{ scale:0.94 }} onClick={() => {
+            const opening = !showRooms;
+            setShowRooms(opening);
+            if (opening) {
+              setLoadingRooms(true);
+              listLudoRooms((res) => {
+                setLoadingRooms(false);
+                if (res?.success) setLudoRooms(res.rooms || []);
+              });
+            }
+          }}
           className="flex-1 py-3 rounded-xl bg-[#1E2235] border border-[#2A2F45] text-gray-300 font-bold text-sm"
           style={{fontFamily:'Syne,sans-serif'}}>
           Browse Rooms
@@ -136,17 +149,22 @@ export default function LudoScreen() {
               <button onClick={() => setShowRooms(false)} className="text-gray-500 text-xs">Close</button>
             </div>
             <div className="flex flex-col divide-y divide-[#2A2F45] max-h-48 overflow-y-auto">
-              {[
-                { id:'ludo_abc1', stake:50, players:1, max:2, winC:1 },
-                { id:'ludo_abc2', stake:100, players:2, max:4, winC:2 },
-                { id:'ludo_abc3', stake:20, players:1, max:3, winC:1 },
-              ].map(r => (
-                <div key={r.id} className="flex items-center justify-between px-4 py-3">
+              {loadingRooms && (
+                <p className="text-center text-gray-500 text-xs py-4">Loading rooms…</p>
+              )}
+              {!loadingRooms && ludoRooms.length === 0 && (
+                <p className="text-center text-gray-500 text-xs py-4">No open rooms right now</p>
+              )}
+              {!loadingRooms && ludoRooms.map(r => (
+                <div key={r.roomId} className="flex items-center justify-between px-4 py-3">
                   <div>
                     <p className="text-sm text-white font-semibold">{r.stake} Br stake</p>
-                    <p className="text-xs text-gray-500">{r.players}/{r.max} players · {r.winC} king{r.winC>1?'s':''}</p>
+                    <p className="text-xs text-gray-500">{r.playerCount}/{r.maxPlayers} players · {r.winCondition} king{r.winCondition>1?'s':''}</p>
                   </div>
                   <motion.button whileTap={{ scale:0.9 }}
+                    onClick={() => joinLudoRoom(r.roomId, (res) => {
+                      if (res?.success) setShowRooms(false);
+                    })}
                     className="px-3 py-1.5 rounded-lg bg-[#F5A623]/15 text-[#F5A623] text-xs font-bold border border-[#F5A623]/30"
                     style={{fontFamily:'Syne,sans-serif'}}>
                     Join
