@@ -59,32 +59,47 @@ const BingoVictory = ({ prize, onClose }) => (
 );
 
 // ── Stake Selector ────────────────────────────────────────────────────────────
-const StakeSelector = ({ onSelect, balance }) => (
+const StakeSelector = ({ onSelect, balance, activeStake, onResume }) => (
   <div className="flex flex-col gap-3">
     <div className="flex items-center justify-between mb-1">
       <h2 className="text-base font-bold text-white" style={{fontFamily:'Syne,sans-serif'}}>Choose Your Stake</h2>
       <span className="text-xs text-[#F5A623]">{balance?.toFixed(2)} Br available</span>
     </div>
-    {STAKE_OPTIONS.map(stake => (
-      <motion.button key={stake} whileTap={{ scale:0.97 }}
-        onClick={() => onSelect(stake)}
-        disabled={balance < stake}
-        className={`w-full bg-[#181C27] border rounded-2xl p-4 flex items-center justify-between transition-all
-          ${balance < stake ? 'border-gray-800 opacity-40 cursor-not-allowed' : 'border-[#2A2F45] hover:border-[#F5A623]/40'}`}>
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-[#1E2235] border border-[#2A2F45] flex items-center justify-center">
-            <span className="text-[#F5A623] font-extrabold text-sm">{stake}Br</span>
+    {STAKE_OPTIONS.map(stake => {
+      const isActive = activeStake === stake;
+      return (
+        <motion.button key={stake} whileTap={{ scale:0.97 }}
+          onClick={() => isActive ? onResume() : onSelect(stake)}
+          disabled={!isActive && balance < stake}
+          className={`w-full bg-[#181C27] border rounded-2xl p-4 flex items-center justify-between transition-all
+            ${isActive
+              ? 'border-green-500/60 shadow-[0_0_12px_rgba(34,197,94,0.2)]'
+              : balance < stake ? 'border-gray-800 opacity-40 cursor-not-allowed' : 'border-[#2A2F45] hover:border-[#F5A623]/40'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-xl border flex items-center justify-center
+              ${isActive ? 'bg-green-950/60 border-green-500/40' : 'bg-[#1E2235] border-[#2A2F45]'}`}>
+              <span className={`font-extrabold text-sm ${isActive ? 'text-green-400' : 'text-[#F5A623]'}`}>{stake}Br</span>
+            </div>
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <p className="text-white font-bold text-sm" style={{fontFamily:'Syne,sans-serif'}}>{stake} Birr per Card</p>
+                {isActive && <span className="px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px] font-bold">LIVE</span>}
+              </div>
+              <p className="text-xs text-gray-500">
+                {isActive ? 'You have an active game here' : 'Pick from 200 cards · Up to 200 players'}
+              </p>
+            </div>
           </div>
-          <div className="text-left">
-            <p className="text-white font-bold text-sm" style={{fontFamily:'Syne,sans-serif'}}>{stake} Birr per Card</p>
-            <p className="text-xs text-gray-500">Pick from 200 cards · Up to 200 players</p>
-          </div>
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 text-gray-500">
-          <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </motion.button>
-    ))}
+          {isActive
+            ? <span className="px-3 py-1.5 rounded-xl bg-green-500 text-black text-xs font-bold flex-shrink-0"
+                style={{fontFamily:'Syne,sans-serif'}}>Continue →</span>
+            : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 text-gray-500">
+                <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+          }
+        </motion.button>
+      );
+    })}
   </div>
 );
 
@@ -444,7 +459,9 @@ export default function BingoScreen() {
               <button onClick={() => setBuyError('')} className="text-xs text-gray-500 mt-1">Dismiss</button>
             </div>
           )}
-          <StakeSelector onSelect={handleSelectStake} balance={balance} />
+          <StakeSelector onSelect={handleSelectStake} balance={balance}
+            activeStake={['active','countdown','waiting'].includes(bingoState?.state) ? bingoState?.stake : null}
+            onResume={() => setView('game')} />
         </motion.div>
       )}
 
