@@ -411,6 +411,15 @@ function PlayersTab({ showToast }) {
     setSearchTimer(setTimeout(() => load(1, v, filter), 400));
   };
 
+  const doClearLock = async () => {
+    try {
+      const d = await adminFetch(`/users/${selected.user.telegramId}/clearlock`, { method: 'PATCH' });
+      showToast(`🔓 Freed ${d.freed.toFixed(2)} ETB — lock cleared.`);
+      setSelected(null);
+      load(page);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
   const openDetail = async (tid) => {
     try {
       const d = await adminFetch(`/users/${tid}`);
@@ -553,6 +562,12 @@ function PlayersTab({ showToast }) {
                 {selected.user.isBlocked ? '✓ Unblock' : '🚫 Block'}
               </ActionBtn>
             </div>
+            {/* Clear Lock button — only shown when lockedBalance is stuck */}
+            {(selected.user.lockedBalance || 0) > 0 && (
+              <ActionBtn variant="ghost" onClick={doClearLock} className="w-full mt-2 text-orange-400 border-orange-500/30">
+                🔓 Clear Stuck Lock ({(selected.user.lockedBalance || 0).toFixed(2)} Br)
+              </ActionBtn>
+            )}
           </>
         )}
       </BottomSheet>
