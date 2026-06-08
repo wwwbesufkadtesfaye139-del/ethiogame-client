@@ -488,7 +488,13 @@ function PlayersTab({ showToast }) {
                   <p className="text-[10px] text-gray-500 font-mono">{u.telegramId}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold text-[#F5A623] font-mono">{u.balance.toFixed(2)} Br</p>
+                  {/* FIX: show available balance (balance - lockedBalance) to match WalletBar */}
+                  <p className="text-sm font-bold text-[#F5A623] font-mono">
+                    {((u.balance || 0) - (u.lockedBalance || 0)).toFixed(2)} Br
+                  </p>
+                  {u.lockedBalance > 0 && (
+                    <p className="text-[9px] text-orange-400 font-mono">🔒 {u.lockedBalance.toFixed(2)} locked</p>
+                  )}
                   <p className="text-[10px] text-gray-600">{u.gamesPlayed || 0} games</p>
                 </div>
                 <motion.button whileTap={{ scale: 0.85 }}
