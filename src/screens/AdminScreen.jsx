@@ -20,12 +20,12 @@ import { useGame } from '../context/GameContext';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 // 👇 Replace this with your real Telegram numeric ID
-const ADMIN_TELEGRAM_ID = 'YOUR_TELEGRAM_ID_HERE';
+const ADMIN_TELEGRAM_ID = '6584576909';
 
 const SERVER = 'https://ethiogame-server-production.up.railway.app';
 
 // 👇 Replace this with your ADMIN_SECRET Railway env value
-const ADMIN_SECRET = 'YOUR_ADMIN_SECRET_HERE';
+const ADMIN_SECRET = 'BESUTI@11';
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 async function adminFetch(path, options = {}) {
