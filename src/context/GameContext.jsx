@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 
-const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
+import { SERVER_URL } from '../config';
 
 const GameCtx = createContext(null);
 
