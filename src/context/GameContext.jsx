@@ -20,8 +20,22 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
   );
 
   useEffect(() => {
-    const socket = io(SERVER_URL, { transports: ['websocket', 'polling'], reconnection: true });
+    // SECURITY FIX: send Telegram initData in the socket handshake so the
+    // server can verify our identity with HMAC-SHA256 before trusting anything.
+    const socket = io(SERVER_URL, {
+      transports:   ['websocket', 'polling'],
+      reconnection: true,
+      auth: {
+        initData: window?.Telegram?.WebApp?.initData || '',
+      },
+    });
     socketRef.current = socket;
+
+    // Handle auth rejection from server (invalid or expired initData)
+    socket.on('connect_error', (err) => {
+      console.error('[Socket] Auth error:', err.message);
+      setConnected(false);
+    });
 
     // ✅ FIX 1 — When app connects, immediately ask Railway for the REAL balance
     socket.on('connect', () => {
