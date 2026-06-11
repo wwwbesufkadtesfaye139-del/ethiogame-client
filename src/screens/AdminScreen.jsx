@@ -19,8 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../context/GameContext';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const ADMIN_TELEGRAM_ID = '6584576909';
-const SERVER = 'https://ethiogame-server-production.up.railway.app';
+import { ADMIN_TELEGRAM_ID, SERVER_URL as SERVER } from '../config';
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 // SECURITY FIX: no hardcoded secret — we prove identity using Telegram's
