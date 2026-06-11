@@ -10,9 +10,7 @@ import WalletScreen from './screens/WalletScreen';
 import AdminScreen  from './screens/AdminScreen';
 import DepositScreen from './components/deposit/DepositScreen';
 import { AnimatePresence, motion } from 'framer-motion';
-
-// 👇 Must match ADMIN_TELEGRAM_ID in AdminScreen.jsx
-const ADMIN_TELEGRAM_ID = '6584576909';
+import { ADMIN_TELEGRAM_ID } from './config';
 
 const SCREENS = {
   home:   HomeScreen,
