@@ -19,21 +19,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../context/GameContext';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-// 👇 Replace this with your real Telegram numeric ID
 const ADMIN_TELEGRAM_ID = '6584576909';
-
 const SERVER = 'https://ethiogame-server-production.up.railway.app';
 
-// 👇 Replace this with your ADMIN_SECRET Railway env value
-const ADMIN_SECRET = 'BESUTI@11';
-
 // ─── API helper ───────────────────────────────────────────────────────────────
+// SECURITY FIX: no hardcoded secret — we prove identity using Telegram's
+// cryptographically signed initData. The server verifies it with BOT_TOKEN.
 async function adminFetch(path, options = {}) {
+  const initData = window?.Telegram?.WebApp?.initData || '';
   const res = await fetch(`${SERVER}/admin/api${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${ADMIN_SECRET}`,
+      Authorization: `TelegramInitData ${initData}`,
       ...(options.headers || {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
