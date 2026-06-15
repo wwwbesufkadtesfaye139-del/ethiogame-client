@@ -145,7 +145,7 @@ export default function HomeScreen({ onNavigate }) {
       <div className="flex flex-col gap-3">
         <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold">Choose Your Game</p>
         <GameCard emoji="🎯" title="Bingo" tag="Up to 50P" tagColor="bg-blue-500/20 text-blue-300"
-          desc="Join a room, daub your card, and shout BINGO! Stakes from 10 Br."
+          desc="Join a room, daub your card, and shout BINGO! Stakes from 10 Birr."
           onClick={() => onNavigate('bingo')} />
         <GameCard emoji="🎲" title="Ludo" tag="2–4 Players" tagColor="bg-purple-500/20 text-purple-300"
           desc="Race your pieces home. Set your stake and win condition."
