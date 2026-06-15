@@ -1,453 +1,455 @@
 /**
- * LudoBoard.jsx — full 15×15 visual board, drop-in replacement
+ * LudoBoard.jsx — Ludo King-style SVG board
+ * Drop-in replacement. Same props as before:
+ *   players, boardState, currentTurnTelegramId, telegramId, onPieceClick
  *
- * Props (unchanged from old component):
- *   players              — array from ludo:gameStarted / ludoState.players
- *   boardState           — array from ludo:pieceMoved  / ludoState.boardState
- *   currentTurnTelegramId
- *   telegramId           — local user's id (from GameContext)
- *   onPieceClick(idx)    — called when user clicks their own piece
+ * Server position system (from LudoRoom.js):
+ *   -1      = in base yard
+ *   0–51    = main 52-cell loop
+ *   52–56   = home column (5 cells toward centre)
+ *   57      = finished (centre)
  *
- * Board coordinate system (matches LudoRoom.js server):
- *   -1        = piece is in base (home yard)
- *   0–51      = main 52-cell loop
- *   52–56     = home column (5 cells)
- *   57        = finished (centre star)
- *
- * Start positions on main loop (from LudoRoom.js):
- *   red: 0  blue: 13  green: 26  yellow: 39
- *
- * The 15×15 grid layout is the classic Ludo layout:
- *   cols 0-5  / rows 0-5   = RED home yard    (top-left)
- *   cols 9-14 / rows 0-5   = BLUE home yard   (top-right)
- *   cols 0-5  / rows 9-14  = GREEN home yard  (bottom-left)
- *   cols 9-14 / rows 9-14  = YELLOW home yard (bottom-right)
- *   col  7 (vertical) + row 7 (horizontal)   = paths + centre
+ * Start positions on main loop:
+ *   red:0  blue:13  green:26  yellow:39
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMemo, useRef, useEffect } from 'react';
+import { useMemo } from 'react';
 
-// ─── Color definitions ────────────────────────────────────────────────────────
+/* ── Colours ─────────────────────────────────────────────────────────────── */
 const C = {
-  red:    { fill:'#E53935', light:'#FFEBEE', border:'#B71C1C', glow:'rgba(229,57,53,0.55)',    text:'#FF8A80', yard:'#3B0A0A' },
-  blue:   { fill:'#1E88E5', light:'#E3F2FD', border:'#0D47A1', glow:'rgba(30,136,229,0.55)',   text:'#82B1FF', yard:'#0A1A3B' },
-  green:  { fill:'#43A047', light:'#E8F5E9', border:'#1B5E20', glow:'rgba(67,160,71,0.55)',    text:'#B9F6CA', yard:'#0A2B0A' },
-  yellow: { fill:'#FFB300', light:'#FFF8E1', border:'#E65100', glow:'rgba(255,179,0,0.55)',    text:'#FFE57F', yard:'#2B1A00' },
+  red:    { main:'#E53935', dark:'#B71C1C', light:'#FFCDD2', glow:'#E5393588', yard:'#7f0000' },
+  blue:   { main:'#1565C0', dark:'#0D47A1', light:'#BBDEFB', glow:'#1565C088', yard:'#003060' },
+  green:  { main:'#2E7D32', dark:'#1B5E20', light:'#C8E6C9', glow:'#2E7D3288', yard:'#003000' },
+  yellow: { main:'#F9A825', dark:'#E65100', light:'#FFF9C4', glow:'#F9A82588', yard:'#5d3a00' },
 };
 
-// ─── Board path — 52 cells mapped to [row, col] on a 15×15 grid ──────────────
-// Following standard Ludo board layout (clockwise from red start)
-const PATH = [
-  // Red start (cell 0) going right along row 6 then up
-  [6,1],[6,2],[6,3],[6,4],[6,5],   // 0-4  bottom of red yard right
-  [5,6],[4,6],[3,6],[2,6],[1,6],   // 5-9  up left column
-  [0,6],                           // 10   top of left column
-  [0,7],                           // 11   top centre
-  [0,8],                           // 12   top right corner
-  [1,8],[2,8],[3,8],[4,8],[5,8],   // 13-17 Blue start(13) down right col
-  // 13 = blue start
-  [6,9],[6,10],[6,11],[6,12],[6,13],[6,14], // 18-23 right side row 6
-  [7,14],                          // 24   right mid
-  [8,14],[8,13],[8,12],[8,11],[8,10],[8,9], // 25-30 right side row 8
-  [9,8],[10,8],[11,8],[12,8],[13,8],[14,8], // 31-36 down right col
-  [14,7],                          // 37   bottom centre
-  [14,6],                          // 38   bottom left
-  [13,6],[12,6],[11,6],[10,6],[9,6], // 39-43 Green start(39) up left col
-  // 39 = green start
-  [8,5],[8,4],[8,3],[8,2],[8,1],[8,0], // 44-49 row 8 going left
-  [7,0],                           // 50   left mid
-  [6,0],                           // 51   back to near red
+/* ── The 15×15 board uses SVG units where each cell = 40px ─────────────── */
+const SZ  = 40;   // cell size in SVG units
+const W   = 15 * SZ; // 600
+const cx  = 7;    // centre column index
+const cy  = 7;    // centre row index
+
+/* ── Classify every cell ─────────────────────────────────────────────────── */
+function cellType(r, c) {
+  // 6×6 yard blocks (corners)
+  if (r <= 5 && c <= 5)   return { type:'yard', color:'red' };
+  if (r <= 5 && c >= 9)   return { type:'yard', color:'blue' };
+  if (r >= 9 && c <= 5)   return { type:'yard', color:'green' };
+  if (r >= 9 && c >= 9)   return { type:'yard', color:'yellow' };
+  // Centre 3×3
+  if (r >= 6 && r <= 8 && c >= 6 && c <= 8) return { type:'centre' };
+  // Home columns (coloured runway to centre)
+  if (r === 7 && c >= 1 && c <= 5)  return { type:'home', color:'red' };
+  if (c === 7 && r >= 1 && r <= 5)  return { type:'home', color:'blue' };
+  if (r === 7 && c >= 9 && c <= 13) return { type:'home', color:'green' };
+  if (c === 7 && r >= 9 && r <= 13) return { type:'home', color:'yellow' };
+  // Path cells
+  return { type:'path' };
+}
+
+/* ── Safe cells (shield stars) on main path indices ──────────────────────── */
+const SAFE_PATH_INDICES = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+
+/* ── The 52-cell main loop mapped to [row,col] ───────────────────────────── */
+const PATH_CELLS = [
+  // Red start → right along row6 bottom edge
+  [6,1],[6,2],[6,3],[6,4],[6,5],
+  // Up left column col6
+  [5,6],[4,6],[3,6],[2,6],[1,6],[0,6],
+  // Right along top
+  [0,7],[0,8],
+  // Down right column col8 — blue start at idx 13
+  [1,8],[2,8],[3,8],[4,8],[5,8],
+  // Right along row6 right side
+  [6,9],[6,10],[6,11],[6,12],[6,13],[6,14],
+  // Down right edge row7
+  [7,14],
+  // Left along row8
+  [8,14],[8,13],[8,12],[8,11],[8,10],[8,9],
+  // Down left col8 — green start at idx 39 counted from 0, but server uses 26 here
+  [9,8],[10,8],[11,8],[12,8],[13,8],[14,8],
+  // Left along bottom
+  [14,7],[14,6],
+  // Up left col6 — green start idx 39
+  [13,6],[12,6],[11,6],[10,6],[9,6],
+  // Left along row8
+  [8,5],[8,4],[8,3],[8,2],[8,1],[8,0],
+  // Up left edge
+  [7,0],
+  // Back near red
+  [6,0],
 ];
+// Sanity: PATH_CELLS.length should be 52
+// [6,1]...[6,0] = 52 entries ✓
 
-// Home columns — each colour's private runway into centre
-const HOME_COL = {
-  red:    [[7,1],[7,2],[7,3],[7,4],[7,5]],     // 52-56 going right
-  blue:   [[1,7],[2,7],[3,7],[4,7],[5,7]],     // 52-56 going down
-  green:  [[7,13],[7,12],[7,11],[7,10],[7,9]], // 52-56 going left
-  yellow: [[13,7],[12,7],[11,7],[10,7],[9,7]], // 52-56 going up
+/* ── Home column cells per colour (positions 52-56) ─────────────────────── */
+const HOME_RUNWAY = {
+  red:    [[7,1],[7,2],[7,3],[7,4],[7,5]],
+  blue:   [[1,7],[2,7],[3,7],[4,7],[5,7]],
+  green:  [[7,13],[7,12],[7,11],[7,10],[7,9]],
+  yellow: [[13,7],[12,7],[11,7],[10,7],[9,7]],
 };
 
-// Safe/star cells on main path
-const SAFE_CELLS = new Set([0,8,13,21,26,34,39,47]);
-
-// Yard piece positions (2×2 grid inside each home yard)
-const YARD_POS = {
-  red:    [[1,1],[1,4],[4,1],[4,4]],
-  blue:   [[1,10],[1,13],[4,10],[4,13]],
-  green:  [[10,1],[10,4],[13,1],[13,4]],
-  yellow: [[10,10],[10,13],[13,10],[13,13]],
+/* ── Yard parking spots per colour (position -1) ─────────────────────────── */
+const YARD_SPOTS = {
+  red:    [[2,2],[2,4],[4,2],[4,4]],
+  blue:   [[2,10],[2,12],[4,10],[4,12]],
+  green:  [[10,2],[10,4],[12,2],[12,4]],
+  yellow: [[10,10],[10,12],[12,10],[12,12]],
 };
 
-// Centre positions for finished pieces (arranged around star)
-const FINISH_POS = [[6,7],[7,8],[8,7],[7,6]]; // 4 slots around centre
-
-// ─── Helper: position for a piece ────────────────────────────────────────────
-function getPieceCell(position, color, pieceIdx) {
-  if (position === -1)  return YARD_POS[color][pieceIdx];
-  if (position === 57)  return FINISH_POS[pieceIdx] || [7,7];
-  if (position >= 52)   return HOME_COL[color][position - 52];
-  return PATH[position];
-}
-
-// ─── Colour stripe cells ──────────────────────────────────────────────────────
-// The home columns have coloured stripes
-const HOME_COL_STRIPE = {
-  red:    new Set(HOME_COL.red.map(([r,c])=>`${r},${c}`)),
-  blue:   new Set(HOME_COL.blue.map(([r,c])=>`${r},${c}`)),
-  green:  new Set(HOME_COL.green.map(([r,c])=>`${r},${c}`)),
-  yellow: new Set(HOME_COL.yellow.map(([r,c])=>`${r},${c}`)),
+/* ── Finished slots (inside centre triangle, per colour) ─────────────────── */
+const FINISH_SLOTS = {
+  red:    [7,6.4],
+  blue:   [6.4,7],
+  green:  [7,7.6],
+  yellow: [7.6,7],
 };
 
-function getCellStripe(row, col) {
-  const key = `${row},${col}`;
-  for (const color of ['red','blue','green','yellow']) {
-    if (HOME_COL_STRIPE[color].has(key)) return color;
+/* ── Map server position → SVG [cx_unit, cy_unit] centre ─────────────────── */
+function getPieceXY(position, color, pieceIdx) {
+  if (position === 57) {
+    const [fr, fc] = FINISH_SLOTS[color];
+    return [fc * SZ + SZ/2, fr * SZ + SZ/2];
   }
-  return null;
-}
-
-// Yard areas
-const YARD_AREA = {
-  red:    (r,c) => r<=5 && c<=5,
-  blue:   (r,c) => r<=5 && c>=9,
-  green:  (r,c) => r>=9 && c<=5,
-  yellow: (r,c) => r>=9 && c>=9,
-};
-
-function getYardColor(row, col) {
-  for (const color of ['red','blue','green','yellow']) {
-    if (YARD_AREA[color](row, col)) return color;
+  if (position === -1) {
+    const [yr, yc] = YARD_SPOTS[color][pieceIdx];
+    return [yc * SZ + SZ/2, yr * SZ + SZ/2];
   }
-  return null;
+  if (position >= 52) {
+    const [hr, hc] = HOME_RUNWAY[color][position - 52];
+    return [hc * SZ + SZ/2, hr * SZ + SZ/2];
+  }
+  const [pr, pc] = PATH_CELLS[position];
+  return [pc * SZ + SZ/2, pr * SZ + SZ/2];
 }
 
-// Centre area
-function isCentre(row, col) {
-  return row >= 6 && row <= 8 && col >= 6 && col <= 8;
-}
+/* ── Safe cell check ─────────────────────────────────────────────────────── */
+const SAFE_XY = new Set([...SAFE_PATH_INDICES].map(i => {
+  const [r,c] = PATH_CELLS[i];
+  return `${r},${c}`;
+}));
 
-// Safe star cell check
-const SAFE_PATH_KEYS = new Set([...SAFE_CELLS].map(i => `${PATH[i][0]},${PATH[i][1]}`));
-function isSafePath(row, col) {
-  return SAFE_PATH_KEYS.has(`${row},${col}`);
-}
+/* ── Render a single board cell ─────────────────────────────────────────── */
+function BoardCell({ r, c }) {
+  const x = c * SZ;
+  const y = r * SZ;
+  const ct = cellType(r, c);
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+  if (ct.type === 'yard') {
+    // Large coloured yard block — only render for the outer border cells
+    return null; // yards rendered as a single rect below
+  }
+  if (ct.type === 'centre') {
+    return null; // rendered separately as star
+  }
 
-function Piece({ color, pieceIdx, position, isMyPiece, isActive, hasPendingDice, onClick }) {
-  const cell = getPieceCell(position, color, pieceIdx);
-  if (!cell) return null;
-  const [row, col] = cell;
-  const c = C[color];
-  const isHome  = position === -1;
-  const isKing  = position === 57;
-  const canMove = isMyPiece && isActive && hasPendingDice;
-
-  const CELL = 100 / 15; // percent per cell
+  const isSafe = SAFE_XY.has(`${r},${c}`);
+  const isHome = ct.type === 'home';
+  const homeColor = isHome ? ct.color : null;
 
   return (
-    <motion.div
-      layout
-      layoutId={`piece-${color}-${pieceIdx}`}
-      initial={false}
-      animate={{
-        left: `${col * CELL + CELL * 0.15}%`,
-        top:  `${row * CELL + CELL * 0.15}%`,
-        width:  `${CELL * 0.7}%`,
-        height: `${CELL * 0.7}%`,
-        scale: canMove ? [1, 1.18, 1] : 1,
-        boxShadow: isKing
-          ? `0 0 8px 3px ${c.glow}, 0 0 2px 1px #FFD70088`
-          : canMove
-          ? `0 0 10px 3px ${c.glow}`
-          : 'none',
-      }}
-      transition={{
-        layout: { type: 'spring', stiffness: 320, damping: 28, mass: 0.8 },
-        scale:  { repeat: canMove ? Infinity : 0, duration: 0.9 },
-      }}
-      onClick={canMove ? () => onClick?.(pieceIdx) : undefined}
-      className="absolute rounded-full flex items-center justify-center"
-      style={{
-        background: isKing
-          ? `radial-gradient(circle at 35% 35%, #fff8, ${c.fill})`
-          : c.fill,
-        border: `2px solid ${isHome ? c.border : '#fff4'}`,
-        cursor: canMove ? 'pointer' : 'default',
-        zIndex: canMove ? 20 : 10,
-        fontSize: `${CELL * 0.4}vw`,
-        color: '#fff',
-        fontWeight: 700,
-        userSelect: 'none',
-      }}
-    >
-      {isKing ? '♛' : pieceIdx + 1}
-    </motion.div>
+    <g key={`${r}-${c}`}>
+      <rect
+        x={x} y={y} width={SZ} height={SZ}
+        fill={isHome ? C[homeColor].main + '33' : '#1E2235'}
+        stroke="#2A2F45"
+        strokeWidth={0.5}
+      />
+      {isHome && (
+        <rect
+          x={x+4} y={y+4} width={SZ-8} height={SZ-8}
+          rx={4}
+          fill={C[homeColor].main + '55'}
+          stroke={C[homeColor].main + '88'}
+          strokeWidth={0.5}
+        />
+      )}
+      {isSafe && !isHome && (
+        <>
+          <rect x={x} y={y} width={SZ} height={SZ} fill="#1a2a1a" stroke="#2A2F45" strokeWidth={0.5}/>
+          <text
+            x={x + SZ/2} y={y + SZ/2 + 5}
+            textAnchor="middle" fontSize={18} fill="#4CAF50" opacity={0.8}
+            style={{userSelect:'none'}}
+          >★</text>
+        </>
+      )}
+    </g>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-export default function LudoBoard({ players = [], boardState = [], currentTurnTelegramId, telegramId, onPieceClick }) {
-  const myPlayer    = players.find(p => p.telegramId === telegramId);
-  const myColor     = myPlayer?.color;
-  const isMyTurn    = currentTurnTelegramId === telegramId;
+/* ── A game piece (token) ────────────────────────────────────────────────── */
+function Piece({ color, pieceIdx, position, canTap, onClick }) {
+  const [px, py] = getPieceXY(position, color, pieceIdx);
+  const col = C[color];
+  const isKing = position === 57;
+  const isYard = position === -1;
+  const r = SZ * 0.36;
 
-  // Build a flat piece map: { color -> pieces[] }
+  return (
+    <motion.g
+      style={{ cursor: canTap ? 'pointer' : 'default' }}
+      onClick={canTap ? () => onClick(pieceIdx) : undefined}
+      animate={{ x: px, y: py }}
+      initial={{ x: px, y: py }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30, mass: 0.7 }}
+    >
+      {/* Glow ring when tappable */}
+      {canTap && (
+        <motion.circle
+          cx={0} cy={0} r={r + 5}
+          fill="none"
+          stroke={col.main}
+          strokeWidth={2.5}
+          opacity={0.9}
+          animate={{ r: [r+4, r+9, r+4], opacity:[0.9,0.4,0.9] }}
+          transition={{ repeat: Infinity, duration: 1.0, ease:'easeInOut' }}
+        />
+      )}
+      {/* Shadow */}
+      <circle cx={1} cy={3} r={r} fill="#00000055" />
+      {/* Outer ring */}
+      <circle cx={0} cy={0} r={r} fill={col.dark} />
+      {/* Main body */}
+      <circle cx={0} cy={0} r={r - 3} fill={col.main} />
+      {/* Shine */}
+      <circle cx={-r*0.28} cy={-r*0.28} r={r*0.32} fill="#ffffff44" />
+      {/* Inner dot / crown */}
+      {isKing ? (
+        <text x={0} y={5} textAnchor="middle" fontSize={r*0.95} fill="#FFD700"
+          style={{userSelect:'none', fontWeight:900}}>♛</text>
+      ) : isYard ? (
+        <circle cx={0} cy={0} r={r*0.38} fill={col.light} opacity={0.7}/>
+      ) : (
+        <text x={0} y={4} textAnchor="middle" fontSize={r*0.75} fill="#fff"
+          style={{userSelect:'none', fontWeight:700}}>{pieceIdx+1}</text>
+      )}
+    </motion.g>
+  );
+}
+
+/* ── Main board component ────────────────────────────────────────────────── */
+export default function LudoBoard({ players=[], boardState=[], currentTurnTelegramId, telegramId, onPieceClick, diceValue }) {
+  const myPlayer  = players.find(p => p.telegramId === telegramId);
+  const isMyTurn  = currentTurnTelegramId === telegramId;
+  const hasDice   = !!diceValue;
+
+  /* build color→pieces map */
   const pieceMap = useMemo(() => {
-    const map = {};
-    const src  = boardState.length ? boardState : players;
-    for (const p of src) {
-      map[p.color] = p.pieces || [-1,-1,-1,-1];
-    }
-    return map;
+    const m = {};
+    const src = boardState.length ? boardState : players;
+    for (const p of src) m[p.color] = p.pieces ?? [-1,-1,-1,-1];
+    return m;
   }, [boardState, players]);
 
-  // We pulse pieces only when it's the local user's turn AND they've rolled
-  // (parent sets diceValue; we check via data attr on onPieceClick readiness)
-  const hasPendingDice = isMyTurn; // parent won't call onPieceClick if no dice value
+  const currentPlayer = players.find(p => p.telegramId === currentTurnTelegramId);
 
-  // ─── Build 15×15 grid cells ────────────────────────────────────────────────
-  const cells = useMemo(() => {
-    const grid = [];
-    for (let r = 0; r < 15; r++) {
-      for (let c = 0; c < 15; c++) {
-        const yard   = getYardColor(r, c);
-        const stripe = getCellStripe(r, c);
-        const centre = isCentre(r, c);
-        const safe   = isSafePath(r, c);
-        const key    = `${r}-${c}`;
-
-        let bg    = '#1A1F30';   // default dark path cell
-        let extra = null;
-
-        if (centre) {
-          // centre 3×3 — drawn as star overlay separately
-          bg = '#0F1117';
-        } else if (yard) {
-          // 6×6 yard blocks
-          bg = C[yard].yard;
-          if (r >= 1 && r <= 4 && c >= 1 && c <= 4) bg = C[yard].yard;   // inner 4×4 inner yard
-        } else if (stripe) {
-          bg = `${C[stripe].fill}22`;
-        } else {
-          // path cell
-          bg = '#1A1F30';
-        }
-
-        if (safe && !yard && !centre && !stripe) {
-          extra = 'star';
-        }
-
-        grid.push({ r, c, key, yard, stripe, centre, safe: extra === 'star' });
-      }
-    }
-    return grid;
-  }, []);
-
-  // ─── All pieces to render ──────────────────────────────────────────────────
+  /* all pieces flat list */
   const allPieces = useMemo(() => {
     const list = [];
     for (const color of ['red','blue','green','yellow']) {
-      const pieces = pieceMap[color] || [-1,-1,-1,-1];
+      const player = players.find(p => p.color === color);
+      if (!player) continue;
+      const pieces = pieceMap[color] ?? [-1,-1,-1,-1];
       for (let i = 0; i < 4; i++) {
-        const player = players.find(p => p.color === color);
-        if (!player) continue;
         list.push({
-          color,
-          pieceIdx:    i,
-          position:    pieces[i],
-          isMyPiece:   player.telegramId === telegramId,
-          isActive:    player.telegramId === currentTurnTelegramId,
+          color, pieceIdx:i, position:pieces[i],
+          isMe: player.telegramId === telegramId,
+          isTurn: player.telegramId === currentTurnTelegramId,
         });
       }
     }
     return list;
   }, [pieceMap, players, telegramId, currentTurnTelegramId]);
 
-  const currentPlayer = players.find(p => p.telegramId === currentTurnTelegramId);
-  const turnColor     = currentPlayer?.color;
-
-  // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {/* Turn banner */}
       <motion.div
         key={currentTurnTelegramId}
-        initial={{ opacity: 0, y: -6 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border"
+        initial={{ opacity:0, scale:0.96 }}
+        animate={{ opacity:1, scale:1 }}
+        className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl border text-sm font-bold"
         style={{
-          background: isMyTurn
-            ? 'rgba(245,166,35,0.10)'
-            : `${turnColor ? C[turnColor].fill : '#fff'}0D`,
-          borderColor: isMyTurn
-            ? 'rgba(245,166,35,0.40)'
-            : `${turnColor ? C[turnColor].fill : '#fff'}30`,
+          fontFamily: 'Syne,sans-serif',
+          background: isMyTurn ? 'rgba(245,166,35,0.12)' : 'rgba(255,255,255,0.04)',
+          borderColor: isMyTurn ? 'rgba(245,166,35,0.45)' : 'rgba(255,255,255,0.1)',
+          color: isMyTurn ? '#F5A623' : (currentPlayer ? C[currentPlayer.color]?.light : '#9CA3AF'),
         }}
       >
-        {turnColor && (
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-            style={{ background: C[turnColor]?.fill }} />
+        {currentPlayer && (
+          <span className="w-2.5 h-2.5 rounded-full"
+            style={{ background: C[currentPlayer.color]?.main, flexShrink:0 }} />
         )}
-        <span className="text-sm font-bold" style={{
-          fontFamily: 'Syne,sans-serif',
-          color: isMyTurn ? '#F5A623' : (turnColor ? C[turnColor].text : '#9CA3AF'),
-        }}>
-          {isMyTurn
-            ? '🎲 Your turn — pick a piece!'
-            : currentPlayer
-            ? `${currentPlayer.username}'s turn…`
-            : 'Waiting…'}
-        </span>
+        {isMyTurn
+          ? hasDice ? '👆 Tap a piece to move!' : '🎲 Roll the dice!'
+          : currentPlayer ? `${currentPlayer.username}'s turn…` : 'Waiting…'
+        }
       </motion.div>
 
-      {/* Board */}
-      <div className="relative w-full rounded-2xl overflow-hidden border border-[#2A2F45]"
-        style={{ background: '#0F1117', aspectRatio: '1 / 1' }}>
+      {/* SVG Board */}
+      <div className="w-full rounded-2xl overflow-hidden border-2 border-[#2A2F45]"
+           style={{ boxShadow:'0 0 40px rgba(0,0,0,0.6)' }}>
+        <svg
+          viewBox={`0 0 ${W} ${W}`}
+          width="100%"
+          style={{ display:'block', background:'#0F1117' }}
+        >
+          {/* ── Background path cells ─────────────────────────────────── */}
+          {Array.from({length:15}, (_,r) =>
+            Array.from({length:15}, (_,c) => {
+              const ct = cellType(r,c);
+              if (ct.type==='yard' || ct.type==='centre') return null;
+              return <BoardCell key={`${r}-${c}`} r={r} c={c} />;
+            })
+          )}
 
-        {/* 15×15 CSS grid */}
-        <div className="absolute inset-0 grid"
-          style={{ gridTemplateColumns: 'repeat(15, 1fr)', gridTemplateRows: 'repeat(15, 1fr)', gap: '1px', padding: '1px' }}>
-          {cells.map(({ r, c, key, yard, stripe, centre, safe }) => {
-            let bg = '#1A1F30';
-            if (centre)    bg = '#0F1117';
-            else if (yard) bg = C[yard].yard;
-            else if (stripe) bg = `${C[stripe].fill}18`;
-
+          {/* ── Yard blocks (one rect each) ───────────────────────────── */}
+          {[
+            { color:'red',    r:0, c:0 },
+            { color:'blue',   r:0, c:9 },
+            { color:'green',  r:9, c:0 },
+            { color:'yellow', r:9, c:9 },
+          ].map(({ color, r, c }) => {
+            const col = C[color];
             return (
-              <div key={key} className="relative flex items-center justify-center" style={{ background: bg, borderRadius: 2 }}>
-                {/* Yard inner area — inner 4×4 circle motif */}
-                {yard && r >= 1 && r <= 4 && c >= 1 && c <= 4 && (
-                  <div className="absolute inset-[15%] rounded-full opacity-20" style={{ background: C[yard].fill }} />
-                )}
-                {yard && r >= 1 && r <= 4 && c >= 10 && c <= 13 && (
-                  <div className="absolute inset-[15%] rounded-full opacity-20" style={{ background: C[yard].fill }} />
-                )}
-                {yard && r >= 10 && r <= 13 && c >= 1 && c <= 4 && (
-                  <div className="absolute inset-[15%] rounded-full opacity-20" style={{ background: C[yard].fill }} />
-                )}
-                {yard && r >= 10 && r <= 13 && c >= 10 && c <= 13 && (
-                  <div className="absolute inset-[15%] rounded-full opacity-20" style={{ background: C[yard].fill }} />
-                )}
-                {/* Stripe colour on home column cells */}
-                {stripe && (
-                  <div className="absolute inset-0 opacity-30 rounded-sm" style={{ background: C[stripe].fill }} />
-                )}
-                {/* Safe star */}
-                {safe && (
-                  <span className="text-[6px] text-yellow-400 opacity-70 leading-none select-none">★</span>
-                )}
-                {/* Centre start circles (yard start-cell on main path) */}
-                {!yard && !centre && !stripe && !safe && (() => {
-                  const pathIdx = PATH.findIndex(([pr,pc]) => pr === r && pc === c);
-                  if (Object.values(START_POSITIONS_IDX).includes(pathIdx)) {
-                    const startColor = Object.keys(START_POSITIONS_IDX).find(col => START_POSITIONS_IDX[col] === pathIdx);
-                    return (
-                      <div className="absolute inset-[20%] rounded-full opacity-50"
-                        style={{ background: C[startColor]?.fill || 'transparent' }} />
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
+              <g key={color}>
+                {/* Yard background */}
+                <rect x={c*SZ} y={r*SZ} width={6*SZ} height={6*SZ}
+                  fill={col.yard} stroke="#0F1117" strokeWidth={2} rx={6}/>
+                {/* Inner circle motif */}
+                <circle
+                  cx={c*SZ + 3*SZ} cy={r*SZ + 3*SZ}
+                  r={2.2*SZ}
+                  fill={col.dark} opacity={0.5}
+                />
+                <circle
+                  cx={c*SZ + 3*SZ} cy={r*SZ + 3*SZ}
+                  r={1.7*SZ}
+                  fill={col.main} opacity={0.3}
+                />
+                {/* 4 parking spots */}
+                {YARD_SPOTS[color].map(([yr,yc], i) => (
+                  <g key={i}>
+                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.4}
+                      fill={col.dark} opacity={0.7}/>
+                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.3}
+                      fill={col.main} opacity={0.4}/>
+                  </g>
+                ))}
+                {/* Colour label */}
+                <text
+                  x={c*SZ + 3*SZ} y={r*SZ + 3*SZ + 5}
+                  textAnchor="middle" fontSize={12}
+                  fill={col.light} opacity={0.5}
+                  fontFamily="sans-serif" fontWeight={700}
+                  style={{userSelect:'none', textTransform:'uppercase', letterSpacing:2}}
+                >
+                  {color.toUpperCase()}
+                </text>
+              </g>
             );
           })}
-        </div>
 
-        {/* Centre star / home triangle */}
-        <div className="absolute"
-          style={{
-            left: `${(6/15)*100}%`,
-            top:  `${(6/15)*100}%`,
-            width: `${(3/15)*100}%`,
-            height:`${(3/15)*100}%`,
-          }}>
-          {/* 4 coloured triangles pointing to centre */}
-          <svg viewBox="0 0 90 90" className="w-full h-full">
-            {/* Red — top-left triangle */}
-            <polygon points="0,0 45,45 0,90"   fill={C.red.fill}    opacity="0.9" />
-            {/* Blue — top-right triangle */}
-            <polygon points="90,0 45,45 90,90"  fill={C.blue.fill}   opacity="0.9" />
-            {/* Green — bottom-left triangle */}
-            <polygon points="0,0 45,45 90,0"    fill={C.green.fill}  opacity="0.9" />
-            {/* Yellow — bottom-right triangle */}
-            <polygon points="0,90 45,45 90,90"  fill={C.yellow.fill} opacity="0.9" />
-            {/* Star */}
-            <text x="45" y="52" textAnchor="middle" fontSize="22" fill="#fff" opacity="0.95">★</text>
-          </svg>
-        </div>
+          {/* ── Centre star (4 triangles + gold star) ─────────────────── */}
+          <g>
+            {/* Triangle: red top-left */}
+            <polygon
+              points={`${6*SZ},${6*SZ} ${7.5*SZ},${7.5*SZ} ${6*SZ},${9*SZ}`}
+              fill={C.red.main} opacity={0.95}
+            />
+            {/* Triangle: blue top-right */}
+            <polygon
+              points={`${9*SZ},${6*SZ} ${7.5*SZ},${7.5*SZ} ${6*SZ},${6*SZ}`}
+              fill={C.blue.main} opacity={0.95}
+            />
+            {/* Triangle: green bottom-right */}
+            <polygon
+              points={`${9*SZ},${9*SZ} ${7.5*SZ},${7.5*SZ} ${9*SZ},${6*SZ}`}
+              fill={C.green.main} opacity={0.95}
+            />
+            {/* Triangle: yellow bottom-left */}
+            <polygon
+              points={`${6*SZ},${9*SZ} ${7.5*SZ},${7.5*SZ} ${9*SZ},${9*SZ}`}
+              fill={C.yellow.main} opacity={0.95}
+            />
+            {/* Centre overlay */}
+            <circle cx={7.5*SZ} cy={7.5*SZ} r={SZ*0.6} fill="#0F1117" opacity={0.6}/>
+            <text x={7.5*SZ} y={7.5*SZ+9} textAnchor="middle"
+              fontSize={28} fill="#FFD700" opacity={0.95}
+              style={{userSelect:'none'}}>★</text>
+          </g>
 
-        {/* Yard labels */}
-        {[
-          { color:'red',    style:{ top:'2%',  left:'2%',  width:'38%', height:'38%' } },
-          { color:'blue',   style:{ top:'2%',  right:'2%', width:'38%', height:'38%' } },
-          { color:'green',  style:{ bottom:'2%',left:'2%', width:'38%', height:'38%' } },
-          { color:'yellow', style:{ bottom:'2%',right:'2%',width:'38%', height:'38%' } },
-        ].map(({ color, style }) => {
-          const player = players.find(p => p.color === color);
-          return (
-            <div key={color} className="absolute flex items-center justify-center pointer-events-none" style={style}>
-              <div className="flex flex-col items-center gap-0.5">
-                <span className="text-[9px] font-bold uppercase tracking-widest opacity-60"
-                  style={{ color: C[color].text, fontFamily: 'Syne,sans-serif' }}>
-                  {color}
-                </span>
-                {player && (
-                  <span className="text-[8px] opacity-50" style={{ color: C[color].text }}>
-                    {player.username}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+          {/* ── Turn highlight ring on active player's yard ───────────── */}
+          {currentPlayer && (() => {
+            const yardMeta = [
+              { color:'red',    r:0, c:0 },
+              { color:'blue',   r:0, c:9 },
+              { color:'green',  r:9, c:0 },
+              { color:'yellow', r:9, c:9 },
+            ].find(y => y.color === currentPlayer.color);
+            if (!yardMeta) return null;
+            return (
+              <motion.rect
+                x={yardMeta.c*SZ+2} y={yardMeta.r*SZ+2}
+                width={6*SZ-4} height={6*SZ-4}
+                rx={6} fill="none"
+                stroke={C[currentPlayer.color].main}
+                strokeWidth={3}
+                animate={{ opacity:[1,0.35,1] }}
+                transition={{ repeat:Infinity, duration:1.2 }}
+              />
+            );
+          })()}
 
-        {/* All pieces — rendered as absolutely positioned overlays */}
-        <AnimatePresence>
-          {allPieces.map(({ color, pieceIdx, position, isMyPiece, isActive }) => (
+          {/* ── Pieces ───────────────────────────────────────────────── */}
+          {allPieces.map(({ color, pieceIdx, position, isMe, isTurn }) => (
             <Piece
               key={`${color}-${pieceIdx}`}
               color={color}
               pieceIdx={pieceIdx}
               position={position}
-              isMyPiece={isMyPiece}
-              isActive={isActive}
-              hasPendingDice={hasPendingDice}
+              canTap={isMe && isTurn && hasDice}
               onClick={onPieceClick}
             />
           ))}
-        </AnimatePresence>
+        </svg>
       </div>
 
       {/* Player legend */}
       {players.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {players.map(p => {
-            const isTurn = p.telegramId === currentTurnTelegramId;
-            const pieces = pieceMap[p.color] || [-1,-1,-1,-1];
-            const kings  = pieces.filter(pos => pos === 57).length;
+            const isTurn  = p.telegramId === currentTurnTelegramId;
+            const pieces  = pieceMap[p.color] ?? [-1,-1,-1,-1];
+            const kings   = pieces.filter(pos => pos === 57).length;
+            const col     = C[p.color];
             return (
-              <div key={p.telegramId}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border flex-1 min-w-[100px] transition-all"
+              <motion.div
+                key={p.telegramId}
+                animate={{ scale: isTurn ? 1.04 : 1 }}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border flex-1 min-w-[90px]"
                 style={{
-                  background:   isTurn ? `${C[p.color].fill}12` : '#181C27',
-                  borderColor:  isTurn ? C[p.color].fill : '#2A2F45',
-                  boxShadow:    isTurn ? `0 0 8px ${C[p.color].glow}` : 'none',
-                }}>
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: C[p.color].fill }} />
-                <div className="flex flex-col min-w-0">
-                  <span className="text-xs font-semibold truncate" style={{ color: C[p.color].text, fontFamily: 'Syne,sans-serif' }}>
+                  background:  isTurn ? col.main+'18' : '#181C27',
+                  borderColor: isTurn ? col.main      : '#2A2F45',
+                  boxShadow:   isTurn ? `0 0 12px ${col.glow}` : 'none',
+                }}
+              >
+                <span className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ background: col.main, boxShadow: isTurn ? `0 0 6px ${col.main}` : 'none' }}/>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-bold truncate"
+                    style={{ color: isTurn ? col.light : '#9CA3AF', fontFamily:'Syne,sans-serif' }}>
                     {p.username}
                   </span>
                   {kings > 0 && (
-                    <span className="text-[9px] text-yellow-400">{'♛'.repeat(kings)}</span>
+                    <span className="text-yellow-400 text-[10px]">{'♛'.repeat(kings)} home</span>
                   )}
                 </div>
-                {isTurn && (
-                  <span className="ml-auto text-[9px] font-bold" style={{ color: C[p.color].fill }}>▶</span>
-                )}
-              </div>
+                {isTurn && <span className="text-[10px] font-bold" style={{ color: col.main }}>▶</span>}
+              </motion.div>
             );
           })}
         </div>
@@ -455,6 +457,3 @@ export default function LudoBoard({ players = [], boardState = [], currentTurnTe
     </div>
   );
 }
-
-// Start positions index map (for circle markers on board)
-const START_POSITIONS_IDX = { red: 0, blue: 13, green: 26, yellow: 39 };
