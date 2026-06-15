@@ -80,7 +80,7 @@ const StakeSelector = ({ onSelect, balance, activeStake, onResume }) => (
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-xl border flex items-center justify-center
               ${isActive ? 'bg-green-950/60 border-green-500/40' : 'bg-[#1E2235] border-[#2A2F45]'}`}>
-              <span className={`font-extrabold text-sm ${isActive ? 'text-green-400' : 'text-[#F5A623]'}`}>{stake}Br</span>
+              <span className={`font-extrabold text-sm ${isActive ? 'text-green-400' : 'text-[#F5A623]'}`}>{stake} Br</span>
             </div>
             <div className="text-left">
               <div className="flex items-center gap-2">
