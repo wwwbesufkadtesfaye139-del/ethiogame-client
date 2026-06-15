@@ -37,12 +37,12 @@ const CardPreview = ({ card, calledNumbers = [] }) => {
 
 // ── Victory Screen ────────────────────────────────────────────────────────────
 const BingoVictory = ({ prize, onClose }) => (
-  <motion.div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80"
+  <motion.div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 overflow-hidden"
     initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
     {Array.from({ length:20 }).map((_,i) => (
       <motion.div key={i} className="absolute w-3 h-3 rounded-full"
         style={{ background: ['#F5A623','#22C55E','#3B82F6','#A855F7','#EF4444'][i%5], top:'50%', left:'50%' }}
-        animate={{ x:(Math.random()-0.5)*300, y:(Math.random()-0.5)*500, opacity:[1,1,0], scale:[0,1,0.5] }}
+        animate={{ x:`${(Math.random()-0.5)*70}vw`, y:`${(Math.random()-0.5)*70}vh`, opacity:[1,1,0], scale:[0,1,0.5] }}
         transition={{ duration:1.2+Math.random(), delay:Math.random()*0.3 }} />
     ))}
     <motion.div initial={{ scale:0.3, y:50 }} animate={{ scale:1, y:0 }}
