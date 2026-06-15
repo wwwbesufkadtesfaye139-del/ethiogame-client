@@ -35,10 +35,11 @@ export default function LudoDice({ value, rolling, canRoll, onRoll }) {
           borderRadius: 16,
           cursor: active ? 'pointer' : 'default',
           position: 'relative',
-          background: 'linear-gradient(145deg, #ffffff 0%, #e0e0e0 100%)',
+          background: 'linear-gradient(145deg, #2A2F45 0%, #1A1E30 100%)',
+          border: active ? '1px solid rgba(245,166,35,0.4)' : '1px solid #2A2F45',
           boxShadow: active
-            ? '0 8px 20px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.8), 0 0 24px rgba(245,166,35,0.5)'
-            : '0 4px 12px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.6)',
+            ? '0 8px 20px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.08), 0 0 24px rgba(245,166,35,0.5)'
+            : '0 4px 12px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.06)',
           userSelect: 'none',
         }}
       >
@@ -47,13 +48,13 @@ export default function LudoDice({ value, rolling, canRoll, onRoll }) {
           style={{ position:'absolute', inset:0 }}>
           {dots.map(([dx,dy], i) => (
             <circle key={i} cx={dx} cy={dy} r={9}
-              fill="#1a1a2e"
-              style={{ filter:'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }}
+              fill="#F5A623"
+              style={{ filter:'drop-shadow(0 1px 2px rgba(245,166,35,0.4))' }}
             />
           ))}
           {!value && (
             <text x="50" y="58" textAnchor="middle"
-              fontSize="32" fill="#999" fontWeight="bold"
+              fontSize="32" fill="#4A4F65" fontWeight="bold"
               style={{userSelect:'none'}}>?</text>
           )}
         </svg>
@@ -61,7 +62,7 @@ export default function LudoDice({ value, rolling, canRoll, onRoll }) {
         {/* Top-left shine */}
         <div style={{
           position:'absolute', top:6, left:6, width:28, height:12,
-          background:'rgba(255,255,255,0.55)', borderRadius:8,
+          background:'rgba(255,255,255,0.12)', borderRadius:8,
           transform:'rotate(-20deg)',
         }}/>
       </motion.div>
