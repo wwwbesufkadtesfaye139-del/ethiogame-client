@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../context/GameContext';
+import BingoCard from '../components/bingo/BingoCard';
+import CalledNumbers from '../components/bingo/CalledNumbers';
 
 const STAKE_OPTIONS = [10, 20, 50, 100, 200];
 const COLS = ['B','I','N','G','O'];
@@ -189,6 +191,23 @@ const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
   const lastDrawn     = bingoState?.lastDrawn;
   const ownedCards    = bingoState?.ownedCards    || [];
   const [activeCard,  setActiveCard] = useState(0);
+  const [daubedMap,   setDaubedMap]  = useState({}); // { [cardNumber]: Set<"r-c"> }
+
+  const activeCardNumber = ownedCards[activeCard]?.cardNumber;
+  const activeDaubed = daubedMap[activeCardNumber] || new Set();
+
+  const handleDaub = (key, cell) => {
+    if (!calledNumbers.includes(cell)) return;
+    setDaubedMap(prev => {
+      const current = new Set(prev[activeCardNumber] || []);
+      if (current.has(key)) {
+        current.delete(key);
+      } else {
+        current.add(key);
+      }
+      return { ...prev, [activeCardNumber]: current };
+    });
+  };
 
   // Bug 3 Fix: When game is finished show winner announcement for all other players.
   // (The actual winner already sees BingoVictory via the victory state in the parent.)
@@ -230,28 +249,8 @@ const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
         </p>
       </div>
 
-      {/* Last drawn number */}
-      {lastDrawn && (
-        <div className="flex items-center justify-center gap-3">
-          <p className="text-xs text-gray-500">Last drawn:</p>
-          <motion.div key={lastDrawn} initial={{ scale:0 }} animate={{ scale:1 }}
-            className="w-12 h-12 rounded-full bg-[#F5A623] flex items-center justify-center text-black font-extrabold text-lg">
-            {lastDrawn}
-          </motion.div>
-        </div>
-      )}
-
-      {/* Called numbers */}
-      <div className="bg-[#181C27] border border-[#2A2F45] rounded-xl p-3">
-        <p className="text-xs text-gray-500 mb-2">Called numbers ({calledNumbers.length}/75)</p>
-        <div className="flex flex-wrap gap-1">
-          {calledNumbers.map(n => (
-            <span key={n} className="w-7 h-7 rounded-full bg-[#F5A623]/20 text-[#F5A623] text-[10px] font-bold flex items-center justify-center">
-              {n}
-            </span>
-          ))}
-        </div>
-      </div>
+      {/* Called numbers — collapsible panel with last-drawn highlight */}
+      <CalledNumbers calledNumbers={calledNumbers} lastDrawn={lastDrawn} />
 
       {/* My cards tabs */}
       {ownedCards.length > 1 && (
@@ -266,11 +265,16 @@ const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
         </div>
       )}
 
-      {/* Active card */}
+      {/* Active card — interactive daubing */}
       {ownedCards[activeCard] && (
-        <div className="bg-[#181C27] border border-[#2A2F45] rounded-2xl p-4">
-          <p className="text-xs text-gray-500 mb-2 text-center">Card #{ownedCards[activeCard].cardNumber}</p>
-          <CardPreview card={ownedCards[activeCard].card} calledNumbers={calledNumbers} />
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-gray-500 text-center">Card #{ownedCards[activeCard].cardNumber} · Tap called numbers to daub</p>
+          <BingoCard
+            card={ownedCards[activeCard].card}
+            daubed={activeDaubed}
+            calledNumbers={calledNumbers}
+            onDaub={handleDaub}
+          />
         </div>
       )}
 
@@ -520,4 +524,4 @@ export default function BingoScreen() {
       )}
     </div>
   );
-          }
+}
