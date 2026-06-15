@@ -9,6 +9,7 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
   const socketRef    = useRef(null);
   const [connected,  setConnected]  = useState(false);
   const [balance,    setBalance]    = useState(0);
+  const [userStats,  setUserStats]  = useState({ totalWinnings: 0, totalDeposited: 0, gamesPlayed: 0, gamesWon: 0 });
   const [bingoState, setBingoState] = useState(null);
   const [ludoState,  setLudoState]  = useState(null);
 
@@ -45,6 +46,17 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       socket.emit('user:getBalance', { telegramId }, (res) => {
         if (res?.success) {
           setBalance(res.balance);
+        }
+      });
+      // Fetch lifetime stats for the Wallet screen (Total Won, Deposited, Games)
+      socket.emit('user:getStats', { telegramId }, (res) => {
+        if (res?.success) {
+          setUserStats({
+            totalWinnings:  res.totalWinnings,
+            totalDeposited: res.totalDeposited,
+            gamesPlayed:    res.gamesPlayed,
+            gamesWon:       res.gamesWon,
+          });
         }
       });
       // Resume: check if this user is mid-game after reconnect
@@ -100,6 +112,17 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       setBingoState((p) => ({ ...p, ...d, state: 'finished' }));
       // ✅ Update balance when game ends (win or loss — server sends real amount)
       if (d.newBalance !== undefined) setBalance(d.newBalance);
+      // Refresh lifetime stats (gamesPlayed, gamesWon, totalWinnings changed)
+      socket.emit('user:getStats', { telegramId }, (res) => {
+        if (res?.success) {
+          setUserStats({
+            totalWinnings:  res.totalWinnings,
+            totalDeposited: res.totalDeposited,
+            gamesPlayed:    res.gamesPlayed,
+            gamesWon:       res.gamesWon,
+          });
+        }
+      });
     });
 
     socket.on('bingo:claimResult', (d) => {
@@ -134,6 +157,17 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       setLudoState((p) => ({ ...p, ...d, state: 'finished' }));
       // ✅ Update balance when game ends
       if (d.newBalance !== undefined) setBalance(d.newBalance);
+      // Refresh lifetime stats (gamesPlayed, gamesWon, totalWinnings changed)
+      socket.emit('user:getStats', { telegramId }, (res) => {
+        if (res?.success) {
+          setUserStats({
+            totalWinnings:  res.totalWinnings,
+            totalDeposited: res.totalDeposited,
+            gamesPlayed:    res.gamesPlayed,
+            gamesWon:       res.gamesWon,
+          });
+        }
+      });
     });
 
     socket.on('ludo:roomCancelled', (d) =>
@@ -239,6 +273,22 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
     }
   };
 
+  // Call this to force-refresh lifetime stats (Total Won, Deposited, Games)
+  const refreshUserStats = () => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('user:getStats', { telegramId }, (res) => {
+        if (res?.success) {
+          setUserStats({
+            totalWinnings:  res.totalWinnings,
+            totalDeposited: res.totalDeposited,
+            gamesPlayed:    res.gamesPlayed,
+            gamesWon:       res.gamesWon,
+          });
+        }
+      });
+    }
+  };
+
   return (
     <GameCtx.Provider
       value={{
@@ -247,6 +297,8 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
         balance,
         setBalance,
         refreshBalance,
+        userStats,
+        refreshUserStats,
         telegramId,       // Bug 4 Fix: export real telegramId so screens don't hardcode it
         bingoState,
         setBingoState,
