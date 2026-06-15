@@ -13,7 +13,7 @@ const STATUS_BADGE = {
 };
 
 export default function WalletScreen() {
-  const { balance, socket } = useGame();
+  const { balance, socket, userStats, refreshUserStats } = useGame();
   const [showDeposit,  setShowDeposit]  = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [transactions, setTransactions] = useState([]);
@@ -26,6 +26,8 @@ export default function WalletScreen() {
         setTransactions(res.transactions);
       }
     });
+    // Ensure lifetime stats are fresh whenever the Wallet screen is opened
+    refreshUserStats?.();
   }, [socket]);
 
   return (
@@ -56,9 +58,9 @@ export default function WalletScreen() {
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { l:'Total Won',  v:'1,200 Br', c:'text-[#F5A623]' },
-          { l:'Deposited',  v:'500 Br',   c:'text-green-400' },
-          { l:'Games',      v:'24',        c:'text-blue-400'  },
+          { l:'Total Won',  v:`${(userStats?.totalWinnings  || 0).toFixed(2)} Br`, c:'text-[#F5A623]' },
+          { l:'Deposited',  v:`${(userStats?.totalDeposited || 0).toFixed(2)} Br`, c:'text-green-400' },
+          { l:'Games',      v:`${userStats?.gamesPlayed || 0}`,                     c:'text-blue-400'  },
         ].map(s => (
           <div key={s.l} className="bg-[#181C27] border border-[#2A2F45] rounded-xl p-3">
             <p className="text-[10px] text-gray-500 uppercase tracking-wider">{s.l}</p>
