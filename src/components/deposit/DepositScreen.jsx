@@ -34,17 +34,27 @@ export default function DepositScreen({ onClose }) {
     setError('');
 
     try {
-      // ✅ Get Telegram user info
-      const tgUser     = window.Telegram?.WebApp?.initDataUnsafe?.user;
-      const telegramId = String(tgUser?.id || 'unknown');
-      const username   = tgUser?.username || tgUser?.first_name || 'unknown';
+      // ✅ FIX #3 — Send the HMAC-signed initData string, NOT initDataUnsafe.
+      //
+      // initDataUnsafe is a plain JS object Telegram already parsed for
+      // convenience — it has no signature and can be freely tampered with
+      // in DevTools. Anyone could change the id field to any telegramId
+      // and submit a deposit on behalf of another user.
+      //
+      // initData is the raw URL-encoded string that Telegram signs with
+      // HMAC-SHA256 using your bot token. The server verifies this
+      // signature and extracts telegramId only from the verified payload.
+      const initData = window.Telegram?.WebApp?.initData;
+      if (!initData) {
+        setError('Could not read Telegram session. Please reopen the app.');
+        setLoading(false);
+        return;
+      }
 
-      // ✅ Send as FormData — no FileReader, no base64, no canvas
-      // This is the most compatible way with Telegram WebView
+      // Send as FormData — no Content-Type header needed (browser adds boundary)
       const formData = new FormData();
-      formData.append('photo',      file);
-      formData.append('telegramId', telegramId);
-      formData.append('username',   username);
+      formData.append('photo',    file);
+      formData.append('initData', initData); // signed — server verifies this
 
       const res = await fetch(`${SERVER_URL}/deposit/upload`, {
         method: 'POST',
