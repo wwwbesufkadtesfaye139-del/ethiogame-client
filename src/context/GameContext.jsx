@@ -104,6 +104,24 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       setBingoState((p) => ({ ...p, ...d, state: 'countdown' }))
     );
 
+    // ✅ FIX #8 — Handle countdown cancellation.
+    //
+    // The server emits this when a player leaves during the countdown
+    // and the room drops below the minimum player count (see
+    // BingoRoom._cancelCountdown). It correctly reverts the ROOM's state
+    // to 'waiting' server-side — but nothing on the client listened,
+    // so the waiting screen kept showing "⏱ Game Starting Soon!" forever
+    // even though the countdown had actually been cancelled and no game
+    // was coming.
+    //
+    // Setting state back to 'waiting' here makes BingoScreen's waiting
+    // view automatically switch its text to "⏳ Waiting for Players…"
+    // (it already branches on bingoState?.state === 'countdown' vs not —
+    // no UI changes needed, just feeding it the truth).
+    socket.on('bingo:countdownCancelled', (d) =>
+      setBingoState((p) => (p ? { ...p, ...d, state: 'waiting' } : p))
+    );
+
     socket.on('bingo:playerJoined', (d) =>
       setBingoState((p) => (p ? { ...p, playerCount: d.playerCount } : p))
     );
