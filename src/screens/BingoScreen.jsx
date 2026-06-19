@@ -239,6 +239,37 @@ const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
     );
   }
 
+  // ✅ FIX #7 — All 75 numbers were drawn and nobody got Bingo.
+  // The server has already refunded everyone's stake (BingoRoom._handleNoWinner
+  // + the FIX #5 balance push), so this screen is purely informational —
+  // it just needs to get the player off the frozen "Game in Progress" view
+  // and tell them their money is safely back.
+  if (bingoState?.state === 'noWinner') {
+    return (
+      <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
+        className="flex flex-col items-center gap-6 py-8">
+        <div className="text-6xl">😬</div>
+        <div className="bg-[#181C27] border-2 border-[#2A2F45] rounded-2xl p-6 flex flex-col items-center gap-3 text-center w-full">
+          <p className="text-xs text-gray-500 uppercase tracking-widest">Game Over</p>
+          <h2 className="text-2xl font-extrabold text-gray-200" style={{fontFamily:'Syne,sans-serif'}}>
+            No Winner This Round
+          </h2>
+          <p className="text-sm text-gray-400">
+            All 75 numbers were called and nobody got Bingo. Your stake has been refunded to your balance.
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {calledNumbers.length} numbers were called
+          </p>
+        </div>
+        <motion.button whileTap={{ scale:0.94 }} onClick={onBack}
+          className="px-8 py-3 rounded-xl bg-[#1E2235] border border-[#2A2F45] text-white font-bold text-sm"
+          style={{fontFamily:'Syne,sans-serif'}}>
+          ← Back to Lobby
+        </motion.button>
+      </motion.div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Status */}
