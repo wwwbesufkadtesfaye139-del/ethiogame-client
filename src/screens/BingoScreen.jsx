@@ -297,7 +297,7 @@ const ActiveGame = ({ bingoState, onClaim, claimResult, onBack }) => {
 
 // ── Main BingoScreen ──────────────────────────────────────────────────────────
 export default function BingoScreen() {
-  const { balance, bingoState, setBingoState, getBingoCards, buyBingoCard, claimBingo } = useGame();
+  const { balance, bingoState, setBingoState, getBingoCards, buyBingoCard, claimBingo, socket } = useGame();
 
   const [view,          setView]         = useState('stakes');  // stakes | cards | waiting | game
   const [selectedStake, setStake]        = useState(null);
@@ -334,6 +334,35 @@ export default function BingoScreen() {
       setView('game');
     }
   }, [roomStateRef, view]);
+
+  // ✅ FIX #6 — Live-update the 200-card grid when ANY player buys a card.
+  //
+  // The server already emits 'bingo:cardTaken' on every purchase
+  // (see BingoRoom.buyCard), but nothing listened for it on the client.
+  // Without this, a player browsing the card grid would see cards as
+  // "available" that other players had already bought seconds earlier —
+  // they'd only find out it was taken after clicking it and getting a
+  // rejection from the server.
+  //
+  // Scoped to `roomId` and only active while the grid is actually visible
+  // ('cards' or 'waiting' view) so it doesn't leak updates into unrelated
+  // rooms or fire after the player has moved on.
+  useEffect(() => {
+    if (!socket || !roomId) return;
+    if (view !== 'cards' && view !== 'waiting') return;
+
+    const handleCardTaken = (d) => {
+      if (d.roomId !== roomId) return; // ignore other rooms' broadcasts
+      setRoomCards((prev) =>
+        prev.map((c) =>
+          c.cardNumber === d.cardNumber ? { ...c, isTaken: true } : c
+        )
+      );
+    };
+
+    socket.on('bingo:cardTaken', handleCardTaken);
+    return () => socket.off('bingo:cardTaken', handleCardTaken);
+  }, [socket, roomId, view]);
 
   const handleSelectStake = useCallback((stake) => {
     setStake(stake);
