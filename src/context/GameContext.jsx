@@ -125,6 +125,20 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       });
     });
 
+    // ✅ FIX #7 — Handle the case where all 75 numbers are drawn with no
+    // winner. The server already emits this and refunds every player's
+    // stake (see BingoRoom._handleNoWinner + FIX #5's balance push), but
+    // nothing on the client was listening — players were stuck staring
+    // at a frozen "Game in Progress" screen forever with no explanation.
+    //
+    // We set a distinct 'noWinner' state (rather than reusing 'finished',
+    // which the UI already treats as "someone won") so BingoScreen can
+    // show the correct message. The refunded balance itself arrives
+    // separately via the 'user:balanceUpdated' event already handled above.
+    socket.on('bingo:noWinner', (d) => {
+      setBingoState((p) => ({ ...p, ...d, state: 'noWinner' }));
+    });
+
     socket.on('bingo:claimResult', (d) => {
       setBingoState((p) => ({ ...p, claimResult: d }));
       // ✅ Update balance if player won
