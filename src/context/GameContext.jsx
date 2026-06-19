@@ -126,6 +126,18 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       setBingoState((p) => (p ? { ...p, playerCount: d.playerCount } : p))
     );
 
+    // ✅ FIX #9 — Keep playerCount accurate when someone leaves.
+    //
+    // The server emits 'bingo:playerLeft' with the updated count whenever
+    // a player disconnects during waiting/countdown (see BingoRoom.removePlayer),
+    // but only 'bingo:playerJoined' was ever handled. The waiting screen's
+    // "N player(s) joined" text could only go up, never down — so after a
+    // player left (e.g. right after a countdown cancellation), the count
+    // stayed stale and overcounted until something else happened to refresh it.
+    socket.on('bingo:playerLeft', (d) =>
+      setBingoState((p) => (p ? { ...p, playerCount: d.playerCount } : p))
+    );
+
     socket.on('bingo:gameOver', (d) => {
       setBingoState((p) => ({ ...p, ...d, state: 'finished' }));
       // ✅ Update balance when game ends (win or loss — server sends real amount)
