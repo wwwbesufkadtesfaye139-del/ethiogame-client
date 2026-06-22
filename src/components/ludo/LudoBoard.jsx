@@ -35,8 +35,11 @@ function cellType(r, c) {
   // 6×6 yard blocks (corners)
   if (r <= 5 && c <= 5)   return { type:'yard', color:'red' };
   if (r <= 5 && c >= 9)   return { type:'yard', color:'blue' };
-  if (r >= 9 && c <= 5)   return { type:'yard', color:'green' };
-  if (r >= 9 && c >= 9)   return { type:'yard', color:'yellow' };
+  // FIX: green/yellow corners were swapped — green's track entry & home
+  // stretch physically sit bottom-right, yellow's sit bottom-left, but the
+  // yards were rendered the other way round. Re-labelled to match.
+  if (r >= 9 && c <= 5)   return { type:'yard', color:'yellow' };
+  if (r >= 9 && c >= 9)   return { type:'yard', color:'green' };
   // Centre 3×3
   if (r >= 6 && r <= 8 && c >= 6 && c <= 8) return { type:'centre' };
   // Home columns (coloured runway to centre)
@@ -91,12 +94,15 @@ const HOME_RUNWAY = {
   yellow: [[13,7],[12,7],[11,7],[10,7],[9,7]],
 };
 
-/* ── Yard parking spots per colour (position -1) ─────────────────────────── */
+/* ── Yard parking spots per colour (position -1) ──────────────────────────
+   Centred on each yard's true midpoint (cell-index 2.5 within the 6-cell
+   block), using ±1 offsets (1.5 / 3.5) instead of {2,4} — the old values
+   averaged to index 3, which sat half a cell off-centre from the yard. ── */
 const YARD_SPOTS = {
-  red:    [[2,2],[2,4],[4,2],[4,4]],
-  blue:   [[2,10],[2,12],[4,10],[4,12]],
-  green:  [[10,2],[10,4],[12,2],[12,4]],
-  yellow: [[10,10],[10,12],[12,10],[12,12]],
+  red:    [[1.5,1.5],[1.5,3.5],[3.5,1.5],[3.5,3.5]],
+  blue:   [[1.5,10.5],[1.5,12.5],[3.5,10.5],[3.5,12.5]],
+  green:  [[10.5,10.5],[10.5,12.5],[12.5,10.5],[12.5,12.5]],
+  yellow: [[10.5,1.5],[10.5,3.5],[12.5,1.5],[12.5,3.5]],
 };
 
 /* ── Finished slots (inside centre triangle, per colour) ─────────────────── */
@@ -195,16 +201,26 @@ function Piece({ color, pieceIdx, position, canTap, onClick }) {
       animate={{ x: px, y: py }}
       initial={{ x: px, y: py }}
       transition={{ type: 'spring', stiffness: 380, damping: 30, mass: 0.7 }}
+      /* ── CRITICAL FIX ──────────────────────────────────────────────────────
+         Framer Motion v11 defaults to CSS transforms ("translate(Xpx, Ypx)")
+         on SVG elements. CSS pixels are relative to the DOM viewport, NOT
+         SVG user units. On a 320px-wide screen with a 600-unit viewBox, a
+         piece at SVG unit (340, 60) gets CSS-translated to (340px, 60px) from
+         the SVG's DOM origin — well outside the clipped container → invisible.
+         transformTemplate overrides the output to a plain SVG translate that
+         uses user units, so pieces always land exactly where getPieceXY says. */
+      transformTemplate={({ x, y }) =>
+        `translate(${typeof x === 'string' ? parseFloat(x) : x} ${typeof y === 'string' ? parseFloat(y) : y})`
+      }
     >
-      {/* Glow ring when tappable */}
+      {/* Glow ring when tappable — pulse opacity only, r stays as SVG attr */}
       {canTap && (
         <motion.circle
-          cx={0} cy={0} r={r + 5}
+          cx={0} cy={0} r={r + 7}
           fill="none"
           stroke={col.main}
           strokeWidth={2.5}
-          opacity={0.9}
-          animate={{ r: [r+4, r+9, r+4], opacity:[0.9,0.4,0.9] }}
+          animate={{ opacity:[0.9, 0.3, 0.9] }}
           transition={{ repeat: Infinity, duration: 1.0, ease:'easeInOut' }}
         />
       )}
@@ -246,18 +262,20 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
 
   const currentPlayer = players.find(p => p.telegramId === currentTurnTelegramId);
 
-  /* all pieces flat list */
+  /* all pieces flat list — falls back to all-4-colors in yard when no players
+     data exists yet (idle/lobby preview), so the board never looks empty.    */
   const allPieces = useMemo(() => {
     const list = [];
-    for (const color of ['red','blue','green','yellow']) {
+    const COLORS = ['red','blue','green','yellow'];
+    for (const color of COLORS) {
       const player = players.find(p => p.color === color);
-      if (!player) continue;
+      // In idle/preview: synthesise a fake entry so the yard pieces still show
       const pieces = pieceMap[color] ?? [-1,-1,-1,-1];
       for (let i = 0; i < 4; i++) {
         list.push({
           color, pieceIdx:i, position:pieces[i],
-          isMe: player.telegramId === telegramId,
-          isTurn: player.telegramId === currentTurnTelegramId,
+          isMe: player ? player.telegramId === telegramId : false,
+          isTurn: player ? player.telegramId === currentTurnTelegramId : false,
         });
       }
     }
@@ -310,8 +328,8 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
           {[
             { color:'red',    r:0, c:0 },
             { color:'blue',   r:0, c:9 },
-            { color:'green',  r:9, c:0 },
-            { color:'yellow', r:9, c:9 },
+            { color:'yellow', r:9, c:0 },
+            { color:'green',  r:9, c:9 },
           ].map(({ color, r, c }) => {
             const col = C[color];
             return (
@@ -330,13 +348,15 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
                   r={1.7*SZ}
                   fill={col.main} opacity={0.3}
                 />
-                {/* 4 parking spots */}
+                {/* 4 parking spots — a visible inset "slot" instead of a same-hue blur */}
                 {YARD_SPOTS[color].map(([yr,yc], i) => (
                   <g key={i}>
-                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.4}
-                      fill={col.dark} opacity={0.7}/>
-                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.3}
-                      fill={col.main} opacity={0.4}/>
+                    {/* recessed shadow well */}
+                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.36}
+                      fill="#00000040" />
+                    {/* light rim so the slot reads clearly against the yard colour */}
+                    <circle cx={yc*SZ+SZ/2} cy={yr*SZ+SZ/2} r={SZ*0.32}
+                      fill="#FFFFFF1A" stroke="#FFFFFF55" strokeWidth={1.5}/>
                   </g>
                 ))}
                 {/* Colour label */}
@@ -387,8 +407,8 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
             const yardMeta = [
               { color:'red',    r:0, c:0 },
               { color:'blue',   r:0, c:9 },
-              { color:'green',  r:9, c:0 },
-              { color:'yellow', r:9, c:9 },
+              { color:'yellow', r:9, c:0 },
+              { color:'green',  r:9, c:9 },
             ].find(y => y.color === currentPlayer.color);
             if (!yardMeta) return null;
             return (
