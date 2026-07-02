@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTelegram }   from './hooks/useTelegram';
+import { setSentryUser } from './lib/sentry';
 import { GameProvider, useGame } from './context/GameContext';
 import WalletBar    from './components/WalletBar';
 import BottomNav    from './components/BottomNav';
@@ -68,6 +69,11 @@ function AppInner() {
 
 export default function App() {
   const { user } = useTelegram();
+
+  useEffect(() => {
+    if (user?.id) setSentryUser(user.id);
+  }, [user?.id]);
+
   return (
     <GameProvider telegramId={user?.id || 'dev'} username={user?.username || 'player'}>
       <AppInner />
