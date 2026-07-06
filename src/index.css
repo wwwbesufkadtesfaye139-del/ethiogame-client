@@ -20,4 +20,23 @@
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Compositor-driven replacements for infinite Framer Motion loops.
+   * Phase 2 (WebView crash/memory hardening): a JS-driven `animate={{opacity:[...]}}`
+   * with `repeat: Infinity` costs a React/FM update on every frame for as long as
+   * it's mounted. These do the same visual job entirely on the GPU/compositor
+   * thread, which is what actually matters on constrained Android WebViews.
+   * Used by BingoCard's "called" cell shimmer (up to ~24 concurrent, for the
+   * whole game) and LudoBoard's active-turn yard ring (1 concurrent instance). */
+  @keyframes cellShimmer {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 0.8; }
+  }
+  .anim-cell-shimmer { animation: cellShimmer 1.4s ease-in-out infinite; }
+
+  @keyframes ringPulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  .anim-ring-pulse { animation: ringPulse 1.2s ease-in-out infinite; }
 }
