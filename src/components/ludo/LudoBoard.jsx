@@ -14,7 +14,8 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
+import { Sentry } from '../../lib/sentry';
 
 /* ── Colours ─────────────────────────────────────────────────────────────── */
 const C = {
@@ -113,22 +114,46 @@ const FINISH_SLOTS = {
   yellow: [7.6,7],
 };
 
+/* ── Known-good colors — anything else means malformed/stale server data ── */
+const KNOWN_COLORS = new Set(['red', 'blue', 'green', 'yellow']);
+
 /* ── Map server position → SVG [cx_unit, cy_unit] centre ─────────────────── */
+/* Phase 2 (crash hardening): position/color come straight from a socket
+ * broadcast. If it's ever out of the expected range — a stale reconnect
+ * payload, a future server bug, a race during a resume — the old code
+ * destructured an out-of-bounds array index straight into a TypeError,
+ * which crashed this entire screen (no error boundary existed before
+ * Phase 0, and even with one now, it still kicks the player out of a live
+ * game). Falling back to a safe yard position degrades the visual instead
+ * of crashing it, and we still surface it to Sentry so it's not silently
+ * swallowed. */
 function getPieceXY(position, color, pieceIdx) {
+  const safeColor = KNOWN_COLORS.has(color) ? color : 'red';
+  const safeIdx   = (pieceIdx >= 0 && pieceIdx <= 3) ? pieceIdx : 0;
+
   if (position === 57) {
-    const [fr, fc] = FINISH_SLOTS[color];
+    const [fr, fc] = FINISH_SLOTS[safeColor];
     return [fc * SZ + SZ/2, fr * SZ + SZ/2];
   }
-  if (position === -1) {
-    const [yr, yc] = YARD_SPOTS[color][pieceIdx];
-    return [yc * SZ + SZ/2, yr * SZ + SZ/2];
-  }
-  if (position >= 52) {
-    const [hr, hc] = HOME_RUNWAY[color][position - 52];
+  if (position >= 52 && position <= 56) {
+    const [hr, hc] = HOME_RUNWAY[safeColor][position - 52];
     return [hc * SZ + SZ/2, hr * SZ + SZ/2];
   }
-  const [pr, pc] = PATH_CELLS[position];
-  return [pc * SZ + SZ/2, pr * SZ + SZ/2];
+  if (position >= 0 && position <= 51) {
+    const [pr, pc] = PATH_CELLS[position];
+    return [pc * SZ + SZ/2, pr * SZ + SZ/2];
+  }
+  // -1 (yard) and anything unrecognized both land here — same safe fallback.
+  if (position !== -1) {
+    console.warn('[LudoBoard] Unexpected piece position, falling back to yard:', position);
+    Sentry.captureMessage('LudoBoard: unexpected piece position', {
+      level: 'warning',
+      tags: { source: 'LudoBoard.getPieceXY' },
+      extra: { position, color, pieceIdx },
+    });
+  }
+  const [yr, yc] = YARD_SPOTS[safeColor][safeIdx];
+  return [yc * SZ + SZ/2, yr * SZ + SZ/2];
 }
 
 /* ── Safe cell check ─────────────────────────────────────────────────────── */
@@ -138,7 +163,11 @@ const SAFE_XY = new Set([...SAFE_PATH_INDICES].map(i => {
 }));
 
 /* ── Render a single board cell ─────────────────────────────────────────── */
-function BoardCell({ r, c }) {
+/* Phase 2: memoized — this cell's own visual never changes after mount
+ * (it's pure given r,c), but without memo it re-rendered along with the
+ * other ~200 of these on every single piece move broadcast during active
+ * play, since it's a plain function component re-created by its parent map. */
+const BoardCell = memo(function BoardCell({ r, c }) {
   const x = c * SZ;
   const y = r * SZ;
   const ct = cellType(r, c);
@@ -184,12 +213,17 @@ function BoardCell({ r, c }) {
       )}
     </g>
   );
-}
+});
 
 /* ── A game piece (token) ────────────────────────────────────────────────── */
-function Piece({ color, pieceIdx, position, canTap, onClick }) {
+/* Phase 2: memoized — of the 16 pieces on the board, a typical move only
+ * changes 1-2. Framer Motion's `animate={{x,y}}` still drives the actual
+ * movement spring (that one needs to stay JS-driven for the physics feel),
+ * but the other 14+ pieces that didn't move now skip re-rendering entirely
+ * instead of re-diffing every prop on every socket update. */
+const Piece = memo(function Piece({ color, pieceIdx, position, canTap, onClick }) {
   const [px, py] = getPieceXY(position, color, pieceIdx);
-  const col = C[color];
+  const col = C[color] || C.red;
   const isKing = position === 57;
   const isYard = position === -1;
   const r = SZ * 0.36;
@@ -213,15 +247,17 @@ function Piece({ color, pieceIdx, position, canTap, onClick }) {
         `translate(${typeof x === 'string' ? parseFloat(x) : x} ${typeof y === 'string' ? parseFloat(y) : y})`
       }
     >
-      {/* Glow ring when tappable — pulse opacity only, r stays as SVG attr */}
+      {/* Glow ring when tappable — CSS keyframe instead of a JS-driven
+          infinite Framer Motion loop (Phase 2: this ran on the main thread
+          for as long as any piece was tappable; the CSS version is
+          compositor-driven). r stays as a plain SVG attr either way. */}
       {canTap && (
-        <motion.circle
+        <circle
+          className="anim-ring-pulse"
           cx={0} cy={0} r={r + 7}
           fill="none"
           stroke={col.main}
           strokeWidth={2.5}
-          animate={{ opacity:[0.9, 0.3, 0.9] }}
-          transition={{ repeat: Infinity, duration: 1.0, ease:'easeInOut' }}
         />
       )}
       {/* Shadow */}
@@ -244,7 +280,7 @@ function Piece({ color, pieceIdx, position, canTap, onClick }) {
       )}
     </motion.g>
   );
-}
+});
 
 /* ── Main board component ────────────────────────────────────────────────── */
 export default function LudoBoard({ players=[], boardState=[], currentTurnTelegramId, telegramId, onPieceClick, diceValue }) {
@@ -412,14 +448,13 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
             ].find(y => y.color === currentPlayer.color);
             if (!yardMeta) return null;
             return (
-              <motion.rect
+              <rect
+                className="anim-ring-pulse"
                 x={yardMeta.c*SZ+2} y={yardMeta.r*SZ+2}
                 width={6*SZ-4} height={6*SZ-4}
                 rx={6} fill="none"
-                stroke={C[currentPlayer.color].main}
+                stroke={(C[currentPlayer.color] || C.red).main}
                 strokeWidth={3}
-                animate={{ opacity:[1,0.35,1] }}
-                transition={{ repeat:Infinity, duration:1.2 }}
               />
             );
           })()}
@@ -445,7 +480,7 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
             const isTurn  = p.telegramId === currentTurnTelegramId;
             const pieces  = pieceMap[p.color] ?? [-1,-1,-1,-1];
             const kings   = pieces.filter(pos => pos === 57).length;
-            const col     = C[p.color];
+            const col     = C[p.color] || C.red;
             return (
               <motion.div
                 key={p.telegramId}
