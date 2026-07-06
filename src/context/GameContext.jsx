@@ -7,6 +7,10 @@ const GameCtx = createContext(null);
 
 export const GameProvider = ({ children, telegramId: propTelegramId, username }) => {
   const socketRef    = useRef(null);
+  // Phase 2: tracks any in-flight retry timers spawned by emit() below, so
+  // they can all be cleared on unmount instead of continuing to run against
+  // a socket that may no longer exist.
+  const pendingRetries = useRef(new Set());
   const [connected,  setConnected]  = useState(false);
   const [balance,    setBalance]    = useState(0);
   const [userStats,  setUserStats]  = useState({ totalWinnings: 0, totalDeposited: 0, gamesPlayed: 0, gamesWon: 0 });
@@ -222,7 +226,22 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
       setLudoState((p) => (p ? { ...p, playerCount: d.playerCount } : p))
     );
 
-    return () => socket.disconnect();
+    return () => {
+      // Phase 2: previously only socket.disconnect() ran here, which stops
+      // the connection but doesn't detach any of the listeners above — if
+      // this effect ever re-runs (e.g. telegramId flips from 'dev' to a
+      // real id right after Telegram's WebApp data hydrates), the old
+      // socket's listeners stayed attached for as long as that object
+      // lived. removeAllListeners() clears all of them in one call before
+      // disconnecting.
+      socket.removeAllListeners();
+      socket.disconnect();
+      // Also stop any in-flight emit() retry timers rather than letting
+      // them keep polling for up to 3 more seconds against a socket that's
+      // going away.
+      pendingRetries.current.forEach(clearInterval);
+      pendingRetries.current.clear();
+    };
   }, [telegramId]); // ✅ Added telegramId as dependency so it re-fetches if user changes
 
   // ─── EMIT HELPER ───────────────────────────────────────────────────────────
@@ -234,12 +253,15 @@ export const GameProvider = ({ children, telegramId: propTelegramId, username })
         attempts++;
         if (socketRef.current?.connected) {
           clearInterval(retry);
+          pendingRetries.current.delete(retry);
           socketRef.current.emit(ev, data, cb);
         } else if (attempts >= 6) {
           clearInterval(retry);
+          pendingRetries.current.delete(retry);
           cb?.({ success: false, message: 'Not connected to server. Please wait.' });
         }
       }, 500);
+      pendingRetries.current.add(retry);
       return;
     }
     socketRef.current.emit(ev, data, cb);
