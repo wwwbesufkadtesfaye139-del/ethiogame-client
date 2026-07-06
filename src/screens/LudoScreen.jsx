@@ -10,7 +10,7 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import LudoBoard       from '../components/ludo/LudoBoard';
 import LudoDice        from '../components/ludo/LudoDice';
 import LudoRoomCreator from '../components/ludo/LudoRoomCreator';
@@ -29,6 +29,15 @@ export default function LudoScreen() {
   const [ludoRooms,    setLudoRooms]    = useState([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const rollTimeoutRef = useRef(null);
+
+  // Phase 2: if the player navigates off this screen mid-roll (e.g. taps
+  // another tab right after rolling), the 4s safety timeout below would
+  // previously still fire and call setRolling on a component that's no
+  // longer mounted — harmless in React 18 but a stray timer/closure held
+  // around for no reason. Clear it on unmount instead.
+  useEffect(() => {
+    return () => { if (rollTimeoutRef.current) clearTimeout(rollTimeoutRef.current); };
+  }, []);
 
   const gameState   = ludoState?.state || 'idle';
   const players     = ludoState?.players || [];
