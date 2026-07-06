@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 
 const TELEBIRR_NUMBER = '0902873635';
 const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
@@ -13,6 +13,18 @@ export default function DepositScreen({ onClose }) {
   const [error,     setError]     = useState('');
   const fileRef = useRef();
 
+  // Phase 2 (crash/memory hardening): a phone camera screenshot can easily
+  // be several MB. The old code read it as a base64 data URL, which inflates
+  // size by ~33% and holds the whole thing as a plain string in React state
+  // for as long as this screen is open — on a low-end device, that's a real
+  // memory spike for a receipt upload. An object URL is just a lightweight
+  // reference to the same Blob (no re-encoding, no size inflation), and we
+  // explicitly revoke it below instead of leaving it for GC to get to
+  // whenever it feels like it.
+  useEffect(() => {
+    return () => { if (preview) URL.revokeObjectURL(preview); };
+  }, [preview]);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(TELEBIRR_NUMBER).then(() => {
       setCopied(true); setTimeout(() => setCopied(false), 2000);
@@ -23,9 +35,10 @@ export default function DepositScreen({ onClose }) {
     const f = e.target.files[0];
     if (!f) return;
     setFile(f);
-    const reader = new FileReader();
-    reader.onload = ev => setPreview(ev.target.result);
-    reader.readAsDataURL(f);
+    setPreview(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
+    });
   };
 
   const handleSubmit = async () => {
