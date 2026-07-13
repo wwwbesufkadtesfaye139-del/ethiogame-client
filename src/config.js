@@ -8,7 +8,7 @@
 export const ADMIN_TELEGRAM_ID = '6584576909';
 
 // Railway backend URL
-export const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
+export const SERVER_URL = 'https://ethiogame-server-production-6601.up.railway.app';
 
 // ── Sentry (crash/error reporting) ──────────────────────────────────────
 // Set VITE_SENTRY_DSN in Vercel's project env vars (see .env.example).
