@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { useRef, useState, useEffect } from 'react';
 
 const TELEBIRR_NUMBER = '0902873635';
-const SERVER_URL = 'https://ethiogame-server-production.up.railway.app';
+const SERVER_URL = 'https://ethiogame-server-production-6601.up.railway.app';
 
 export default function DepositScreen({ onClose }) {
   const [file,      setFile]      = useState(null);
