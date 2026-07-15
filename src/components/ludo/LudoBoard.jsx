@@ -14,16 +14,14 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMemo, memo } from 'react';
+import { useMemo, memo, useState, useEffect, useRef } from 'react';
 import { Sentry } from '../../lib/sentry';
+import { LUDO_COLORS, LUDO_PALETTE } from './ludoTheme';
 
 /* ── Colours ─────────────────────────────────────────────────────────────── */
-const C = {
-  red:    { main:'#E53935', dark:'#B71C1C', light:'#FFCDD2', glow:'#E5393588', yard:'#7f0000' },
-  blue:   { main:'#1565C0', dark:'#0D47A1', light:'#BBDEFB', glow:'#1565C088', yard:'#003060' },
-  green:  { main:'#2E7D32', dark:'#1B5E20', light:'#C8E6C9', glow:'#2E7D3288', yard:'#003000' },
-  yellow: { main:'#F9A825', dark:'#E65100', light:'#FFF9C4', glow:'#F9A82588', yard:'#5d3a00' },
-};
+/* Spec's exact primary/glow hex values, with dark/yard shades derived from
+ * them in ludoTheme.js — see that file if the palette itself ever changes. */
+const C = LUDO_COLORS;
 
 /* ── The 15×15 board uses SVG units where each cell = 40px ─────────────── */
 const SZ  = 40;   // cell size in SVG units
@@ -156,6 +154,50 @@ function getPieceXY(position, color, pieceIdx) {
   return [yc * SZ + SZ/2, yr * SZ + SZ/2];
 }
 
+/* ── Step-by-step move reconstruction ─────────────────────────────────────
+ * The server only tells us fromPosition → toPosition (it's the sole source
+ * of truth for whether a move is legal). But the spec is explicit: pieces
+ * must visibly walk one square at a time, never cut a straight line across
+ * the board. This mirrors the server's own position math (LudoRoom.js
+ * _calculateNewPosition) one step at a time, purely to drive the animation —
+ * it never decides legality, it just replays a move we already know happened. */
+const START_POSITIONS = { red: 0, blue: 13, green: 26, yellow: 39 };
+const MAIN_LOOP_LEN = 52;
+const FINISH_POS = 57;
+
+function stepOnce(position, color) {
+  if (position === FINISH_POS) return null;
+  if (position >= 52) {
+    const next = position + 1;
+    return next > FINISH_POS ? null : next;
+  }
+  const startPos = START_POSITIONS[color] ?? 0;
+  const stepsFromStart = (position - startPos + MAIN_LOOP_LEN) % MAIN_LOOP_LEN;
+  const nextSteps = stepsFromStart + 1;
+  if (nextSteps === MAIN_LOOP_LEN) return 52;
+  if (nextSteps < MAIN_LOOP_LEN) return (startPos + nextSteps) % MAIN_LOOP_LEN;
+  return null;
+}
+
+/** Returns the ordered list of positions a piece passes through (excluding
+ *  the starting one), landing on toPosition. Leaving the yard is a direct
+ *  placement onto the entry cell (the spec describes it that way, not a walk),
+ *  everything else is stepped one square at a time up to 6 hops (max roll). */
+function buildStepPath(fromPosition, toPosition, color) {
+  if (fromPosition === -1 || !KNOWN_COLORS.has(color)) return [toPosition];
+  const path = [];
+  let cur = fromPosition;
+  for (let i = 0; i < 6; i++) {
+    const next = stepOnce(cur, color);
+    if (next === null) break;
+    path.push(next);
+    cur = next;
+    if (next === toPosition) break;
+  }
+  if (path.length === 0 || path[path.length - 1] !== toPosition) return [toPosition];
+  return path;
+}
+
 /* ── Safe cell check ─────────────────────────────────────────────────────── */
 const SAFE_XY = new Set([...SAFE_PATH_INDICES].map(i => {
   const [r,c] = PATH_CELLS[i];
@@ -188,8 +230,9 @@ const BoardCell = memo(function BoardCell({ r, c }) {
     <g key={`${r}-${c}`}>
       <rect
         x={x} y={y} width={SZ} height={SZ}
-        fill={isHome ? C[homeColor].main + '33' : '#1E2235'}
-        stroke="#2A2F45"
+        fill={isHome ? C[homeColor].main + '33' : LUDO_PALETTE.card}
+        stroke={LUDO_PALETTE.grid}
+        strokeOpacity={0.14}
         strokeWidth={0.5}
       />
       {isHome && (
@@ -203,10 +246,12 @@ const BoardCell = memo(function BoardCell({ r, c }) {
       )}
       {isSafe && !isHome && (
         <>
-          <rect x={x} y={y} width={SZ} height={SZ} fill="#1a2a1a" stroke="#2A2F45" strokeWidth={0.5}/>
+          {/* Gold, not green — a green star on this board would read as
+              "green player's cell", which it isn't; safety is universal. */}
+          <rect x={x} y={y} width={SZ} height={SZ} fill="#F5A62322" stroke={LUDO_PALETTE.grid} strokeOpacity={0.18} strokeWidth={0.5}/>
           <text
             x={x + SZ/2} y={y + SZ/2 + 5}
-            textAnchor="middle" fontSize={18} fill="#4CAF50" opacity={0.8}
+            textAnchor="middle" fontSize={18} fill="#F5C451" opacity={0.9}
             style={{userSelect:'none'}}
           >★</text>
         </>
@@ -221,20 +266,29 @@ const BoardCell = memo(function BoardCell({ r, c }) {
  * movement spring (that one needs to stay JS-driven for the physics feel),
  * but the other 14+ pieces that didn't move now skip re-rendering entirely
  * instead of re-diffing every prop on every socket update. */
-const Piece = memo(function Piece({ color, pieceIdx, position, canTap, onClick }) {
+const Piece = memo(function Piece({ color, pieceIdx, position, canTap, onClick, walk }) {
   const [px, py] = getPieceXY(position, color, pieceIdx);
   const col = C[color] || C.red;
   const isKing = position === 57;
   const isYard = position === -1;
   const r = SZ * 0.36;
 
+  // `walk`, when present, is this exact piece's in-flight step-by-step move:
+  // { xs, ys, times, duration }. Every other piece just springs to its
+  // (unchanged) resting spot as before.
+  const hasWalk = walk && walk.xs.length > 1;
+
   return (
     <motion.g
       style={{ cursor: canTap ? 'pointer' : 'default' }}
       onClick={canTap ? () => onClick(pieceIdx) : undefined}
-      animate={{ x: px, y: py }}
       initial={{ x: px, y: py }}
-      transition={{ type: 'spring', stiffness: 380, damping: 30, mass: 0.7 }}
+      animate={hasWalk ? { x: walk.xs, y: walk.ys } : { x: px, y: py }}
+      transition={
+        hasWalk
+          ? { duration: walk.duration, times: walk.times, ease: 'easeInOut' }
+          : { type: 'spring', stiffness: 380, damping: 30, mass: 0.7 }
+      }
       /* ── CRITICAL FIX ──────────────────────────────────────────────────────
          Framer Motion v11 defaults to CSS transforms ("translate(Xpx, Ypx)")
          on SVG elements. CSS pixels are relative to the DOM viewport, NOT
@@ -260,30 +314,64 @@ const Piece = memo(function Piece({ color, pieceIdx, position, canTap, onClick }
           strokeWidth={2.5}
         />
       )}
-      {/* Shadow */}
-      <circle cx={1} cy={3} r={r} fill="#00000055" />
-      {/* Outer ring */}
-      <circle cx={0} cy={0} r={r} fill={col.dark} />
-      {/* Main body */}
-      <circle cx={0} cy={0} r={r - 3} fill={col.main} />
-      {/* Shine */}
-      <circle cx={-r*0.28} cy={-r*0.28} r={r*0.32} fill="#ffffff44" />
-      {/* Inner dot / crown */}
-      {isKing ? (
-        <text x={0} y={5} textAnchor="middle" fontSize={r*0.95} fill="#FFD700"
-          style={{userSelect:'none', fontWeight:900}}>♛</text>
-      ) : isYard ? (
-        <circle cx={0} cy={0} r={r*0.38} fill={col.light} opacity={0.7}/>
-      ) : (
-        <text x={0} y={4} textAnchor="middle" fontSize={r*0.75} fill="#fff"
-          style={{userSelect:'none', fontWeight:700}}>{pieceIdx+1}</text>
-      )}
+      {/* Body group scales up gently while selectable — spec: "scale up,
+          glow stronger, pulse" on selection. Pure CSS keyframe (see index.css),
+          so it costs nothing on the main thread while it's just sitting there
+          waiting to be tapped. */}
+      <g className={canTap ? 'anim-token-select' : undefined}>
+        {/* Shadow, grounds the token against the board */}
+        <ellipse cx={1.5} cy={r*0.7} rx={r*0.9} ry={r*0.3} fill="#00000060" />
+        {/* Outline */}
+        <circle cx={0} cy={0} r={r + 1.4} fill="none" stroke="#08101B" strokeWidth={1.6} opacity={0.55} />
+        {/* Outer rim for depth */}
+        <circle cx={0} cy={0} r={r} fill={col.dark} />
+        {/* Main body — radial gradient, not a flat fill */}
+        <circle cx={0} cy={0} r={r - 2.5} fill={`url(#tokenGrad-${color})`} stroke={col.dark} strokeWidth={1} />
+        {/* Highlight */}
+        <ellipse cx={-r*0.26} cy={-r*0.3} rx={r*0.34} ry={r*0.22} fill="#ffffff70" />
+        {/* Inner dot / crown */}
+        {isKing ? (
+          <text x={0} y={5} textAnchor="middle" fontSize={r*0.95} fill="#FFD700"
+            style={{userSelect:'none', fontWeight:900}}>♛</text>
+        ) : isYard ? (
+          <circle cx={0} cy={0} r={r*0.38} fill={col.light} opacity={0.85}/>
+        ) : (
+          <text x={0} y={4} textAnchor="middle" fontSize={r*0.75} fill="#fff"
+            style={{userSelect:'none', fontWeight:700}}>{pieceIdx+1}</text>
+        )}
+      </g>
     </motion.g>
   );
 });
 
+/* ── Timing for the step-by-step walk animation ───────────────────────────
+ * Each square takes STEP_MS, with a small upward hop at the midpoint of
+ * every square ("tiny bounce ... pause ... move one square" per spec). Kept
+ * snappy on purpose — the spec also says animation shouldn't slow gameplay. */
+const STEP_MS = 170;
+
+function buildWalkAnimation(fromPosition, toPosition, color, pieceIdx) {
+  const steps = buildStepPath(fromPosition, toPosition, color);
+  const startXY = getPieceXY(fromPosition, color, pieceIdx);
+  const coords = [startXY, ...steps.map((pos) => getPieceXY(pos, color, pieceIdx))];
+  if (coords.length < 2) return null;
+
+  const xs = [coords[0][0]];
+  const ys = [coords[0][1]];
+  for (let i = 1; i < coords.length; i++) {
+    const [px, py] = coords[i - 1];
+    const [cx, cy] = coords[i];
+    // Midpoint hop: nudged upward so each square-crossing reads as a tiny bounce.
+    xs.push((px + cx) / 2, cx);
+    ys.push((py + cy) / 2 - 5, cy);
+  }
+  const stepCount = coords.length - 1;
+  const times = xs.map((_, i) => i / (xs.length - 1));
+  return { xs, ys, times, duration: Math.max(0.22, stepCount * STEP_MS / 1000) };
+}
+
 /* ── Main board component ────────────────────────────────────────────────── */
-export default function LudoBoard({ players=[], boardState=[], currentTurnTelegramId, telegramId, onPieceClick, diceValue }) {
+export default function LudoBoard({ players=[], boardState=[], currentTurnTelegramId, telegramId, onPieceClick, diceValue, lastMove }) {
   const myPlayer  = players.find(p => p.telegramId === telegramId);
   const isMyTurn  = currentTurnTelegramId === telegramId;
   const hasDice   = !!diceValue;
@@ -298,6 +386,25 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
 
   const currentPlayer = players.find(p => p.telegramId === currentTurnTelegramId);
 
+  /* Track the single piece currently mid-walk, driven by the server's own
+     'ludo:pieceMoved' payload (lastMove) — never guessed, just replayed one
+     square at a time instead of springing straight there. */
+  const [activeWalk, setActiveWalk] = useState(null); // { color, pieceIdx, anim }
+  const walkTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (!lastMove || lastMove.fromPosition === undefined || lastMove.toPosition === undefined) return;
+    const anim = buildWalkAnimation(lastMove.fromPosition, lastMove.toPosition, lastMove.color, lastMove.pieceIndex);
+    if (!anim) return;
+
+    setActiveWalk({ color: lastMove.color, pieceIdx: lastMove.pieceIndex, anim });
+    if (walkTimeoutRef.current) clearTimeout(walkTimeoutRef.current);
+    walkTimeoutRef.current = setTimeout(() => setActiveWalk(null), anim.duration * 1000 + 60);
+
+    return () => clearTimeout(walkTimeoutRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastMove]);
+
   /* all pieces flat list — falls back to all-4-colors in yard when no players
      data exists yet (idle/lobby preview), so the board never looks empty.    */
   const allPieces = useMemo(() => {
@@ -308,15 +415,17 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
       // In idle/preview: synthesise a fake entry so the yard pieces still show
       const pieces = pieceMap[color] ?? [-1,-1,-1,-1];
       for (let i = 0; i < 4; i++) {
+        const isWalking = activeWalk && activeWalk.color === color && activeWalk.pieceIdx === i;
         list.push({
           color, pieceIdx:i, position:pieces[i],
           isMe: player ? player.telegramId === telegramId : false,
           isTurn: player ? player.telegramId === currentTurnTelegramId : false,
+          walk: isWalking ? activeWalk.anim : null,
         });
       }
     }
     return list;
-  }, [pieceMap, players, telegramId, currentTurnTelegramId]);
+  }, [pieceMap, players, telegramId, currentTurnTelegramId, activeWalk]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -344,13 +453,26 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
       </motion.div>
 
       {/* SVG Board */}
-      <div className="w-full rounded-2xl overflow-hidden border-2 border-[#2A2F45]"
-           style={{ boxShadow:'0 0 40px rgba(0,0,0,0.6)' }}>
+      <div className="w-full rounded-2xl overflow-hidden"
+           style={{
+             border: `2px solid ${LUDO_PALETTE.border}22`,
+             boxShadow: `0 0 40px rgba(0,0,0,0.6), inset 0 0 0 1px ${LUDO_PALETTE.border}14`,
+           }}>
         <svg
           viewBox={`0 0 ${W} ${W}`}
           width="100%"
-          style={{ display:'block', background:'#0F1117' }}
+          style={{ display:'block', background: LUDO_PALETTE.background }}
         >
+          <defs>
+            {['red','blue','green','yellow'].map((name) => (
+              <radialGradient key={name} id={`tokenGrad-${name}`} cx="35%" cy="30%" r="75%">
+                <stop offset="8%"  stopColor={C[name].light} />
+                <stop offset="55%" stopColor={C[name].main} />
+                <stop offset="100%" stopColor={C[name].dark} />
+              </radialGradient>
+            ))}
+          </defs>
+
           {/* ── Background path cells ─────────────────────────────────── */}
           {Array.from({length:15}, (_,r) =>
             Array.from({length:15}, (_,c) => {
@@ -372,7 +494,7 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
               <g key={color}>
                 {/* Yard background */}
                 <rect x={c*SZ} y={r*SZ} width={6*SZ} height={6*SZ}
-                  fill={col.yard} stroke="#0F1117" strokeWidth={2} rx={6}/>
+                  fill={col.yard} stroke={LUDO_PALETTE.background} strokeWidth={2} rx={6}/>
                 {/* Inner circle motif */}
                 <circle
                   cx={c*SZ + 3*SZ} cy={r*SZ + 3*SZ}
@@ -432,7 +554,7 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
               fill={C.yellow.main} opacity={0.95}
             />
             {/* Centre overlay */}
-            <circle cx={7.5*SZ} cy={7.5*SZ} r={SZ*0.6} fill="#0F1117" opacity={0.6}/>
+            <circle cx={7.5*SZ} cy={7.5*SZ} r={SZ*0.6} fill={LUDO_PALETTE.background} opacity={0.6}/>
             <text x={7.5*SZ} y={7.5*SZ+9} textAnchor="middle"
               fontSize={28} fill="#FFD700" opacity={0.95}
               style={{userSelect:'none'}}>★</text>
@@ -460,7 +582,7 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
           })()}
 
           {/* ── Pieces ───────────────────────────────────────────────── */}
-          {allPieces.map(({ color, pieceIdx, position, isMe, isTurn }) => (
+          {allPieces.map(({ color, pieceIdx, position, isMe, isTurn, walk }) => (
             <Piece
               key={`${color}-${pieceIdx}`}
               color={color}
@@ -468,12 +590,14 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
               position={position}
               canTap={isMe && isTurn && hasDice}
               onClick={onPieceClick}
+              walk={walk}
             />
           ))}
         </svg>
       </div>
 
-      {/* Player legend */}
+      {/* Player strip — avatars + turn indicator (spec's "Top Bar" content,
+          kept docked to the board itself rather than the whole app shell) */}
       {players.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {players.map(p => {
@@ -481,19 +605,28 @@ export default function LudoBoard({ players=[], boardState=[], currentTurnTelegr
             const pieces  = pieceMap[p.color] ?? [-1,-1,-1,-1];
             const kings   = pieces.filter(pos => pos === 57).length;
             const col     = C[p.color] || C.red;
+            const initial = (p.username || '?').trim().charAt(0).toUpperCase();
             return (
               <motion.div
                 key={p.telegramId}
                 animate={{ scale: isTurn ? 1.04 : 1 }}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border flex-1 min-w-[90px]"
                 style={{
-                  background:  isTurn ? col.main+'18' : '#181C27',
-                  borderColor: isTurn ? col.main      : '#2A2F45',
+                  background:  isTurn ? col.main+'18' : LUDO_PALETTE.card,
+                  borderColor: isTurn ? col.main      : LUDO_PALETTE.grid+'2A',
                   boxShadow:   isTurn ? `0 0 12px ${col.glow}` : 'none',
                 }}
               >
-                <span className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ background: col.main, boxShadow: isTurn ? `0 0 6px ${col.main}` : 'none' }}/>
+                <span
+                  className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-extrabold"
+                  style={{
+                    background: `radial-gradient(circle at 35% 30%, ${col.light}, ${col.main} 60%, ${col.dark} 100%)`,
+                    color: '#08101B',
+                    boxShadow: isTurn ? `0 0 8px ${col.main}` : 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+                  }}
+                >
+                  {initial}
+                </span>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-xs font-bold truncate"
                     style={{ color: isTurn ? col.light : '#9CA3AF', fontFamily:'Syne,sans-serif' }}>

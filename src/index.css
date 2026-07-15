@@ -39,4 +39,38 @@
     50%      { opacity: 0.35; }
   }
   .anim-ring-pulse { animation: ringPulse 1.2s ease-in-out infinite; }
+
+  /* Ludo — selected/tappable token: "scale up, glow stronger, pulse" per spec.
+   * transform-box/origin keep the scale centred on the token itself even
+   * though it's an SVG <g> being scaled, not a block element. */
+  @keyframes tokenSelectPulse {
+    0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 2px rgba(255,255,255,0.15)); }
+    50%      { transform: scale(1.12); filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+  }
+  .anim-token-select {
+    animation: tokenSelectPulse 1.1s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /* Ludo victory — confetti pieces fall + drift + spin, fireworks burst out
+   * from a central point and fade. Both driven entirely by the compositor. */
+  @keyframes confettiFall {
+    0%   { transform: translate3d(0, -10vh, 0) rotate(0deg);   opacity: 1; }
+    100% { transform: translate3d(var(--drift, 0px), 110vh, 0) rotate(540deg); opacity: 0.9; }
+  }
+  .anim-confetti { animation: confettiFall linear forwards; }
+
+  @keyframes fireworkBurst {
+    0%   { transform: translate(-50%, -50%) scale(0);   opacity: 1; }
+    70%  { opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--tx, 0px)), calc(-50% + var(--ty, 0px))) scale(1); opacity: 0; }
+  }
+  .anim-firework-particle { animation: fireworkBurst ease-out forwards; }
+
+  @keyframes goldGlowPulse {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50%      { opacity: 0.9;  transform: scale(1.06); }
+  }
+  .anim-gold-glow { animation: goldGlowPulse 2.2s ease-in-out infinite; }
 }

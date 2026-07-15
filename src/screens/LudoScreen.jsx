@@ -14,6 +14,9 @@ import { useState, useRef, useEffect } from 'react';
 import LudoBoard       from '../components/ludo/LudoBoard';
 import LudoDice        from '../components/ludo/LudoDice';
 import LudoRoomCreator from '../components/ludo/LudoRoomCreator';
+import VictoryOverlay  from '../components/ludo/VictoryOverlay';
+import { LUDO_PALETTE } from '../components/ludo/ludoTheme';
+import useLudoSounds   from '../hooks/useLudoSounds';
 import { useGame }     from '../context/GameContext';
 
 export default function LudoScreen() {
@@ -29,6 +32,8 @@ export default function LudoScreen() {
   const [ludoRooms,    setLudoRooms]    = useState([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const rollTimeoutRef = useRef(null);
+  const sfx = useLudoSounds();
+  const playedVictorySound = useRef(false);
 
   // Phase 2: if the player navigates off this screen mid-roll (e.g. taps
   // another tab right after rolling), the 4s safety timeout below would
@@ -45,6 +50,15 @@ export default function LudoScreen() {
   const boardState  = ludoState?.boardState || [];
   const isMyTurn    = currentTurn === telegramId;
 
+  useEffect(() => {
+    if (gameState === 'finished' && !playedVictorySound.current) {
+      playedVictorySound.current = true;
+      sfx.victory();
+    }
+    if (gameState !== 'finished') playedVictorySound.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
+
   const handleCreate = (opts) => {
     createLudoRoom(opts, (res) => {
       if (res?.success) setShowCreator(false);
@@ -54,6 +68,7 @@ export default function LudoScreen() {
   const handleRoll = () => {
     if (!isMyTurn || rolling) return;
     setRolling(true);
+    sfx.diceRoll();
 
     // Safety net: always unblock after 4s even if server never acks
     if (rollTimeoutRef.current) clearTimeout(rollTimeoutRef.current);
@@ -65,6 +80,7 @@ export default function LudoScreen() {
       clearTimeout(rollTimeoutRef.current);
       if (res?.success) {
         setDiceValue(res.diceValue);
+        sfx.diceLand();
       }
       setRolling(false);
     });
@@ -72,6 +88,7 @@ export default function LudoScreen() {
 
   const handlePieceClick = (idx) => {
     if (!diceValue || !isMyTurn) return;
+    sfx.pieceMove();
     movePiece(ludoState?.roomId, idx, diceValue, (res) => {
       setDiceValue(null);
     });
@@ -82,45 +99,12 @@ export default function LudoScreen() {
     const winner = ludoState.winner;
     const iWon   = winner?.telegramId === telegramId;
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-5 p-6 text-center">
-        <motion.div
-          initial={{ scale:0, rotate:-20 }}
-          animate={{ scale:1, rotate:0 }}
-          transition={{ type:'spring', stiffness:260, damping:18 }}
-          className="text-7xl"
-        >
-          {iWon ? '👑' : '🥈'}
-        </motion.div>
-        <motion.h2
-          initial={{ opacity:0, y:10 }}
-          animate={{ opacity:1, y:0 }}
-          transition={{ delay:0.25 }}
-          className="text-2xl font-extrabold"
-          style={{ fontFamily:'Syne,sans-serif', color: iWon ? '#F5A623' : '#9CA3AF' }}
-        >
-          {iWon ? 'You Won!' : `${winner?.username || 'Someone'} Won!`}
-        </motion.h2>
-        {ludoState.winnerPrize > 0 && (
-          <motion.p
-            initial={{ opacity:0 }}
-            animate={{ opacity:1 }}
-            transition={{ delay:0.4 }}
-            className="text-gray-400 text-sm"
-          >
-            Prize: <span className="text-[#F5A623] font-bold">{ludoState.winnerPrize} Birr</span>
-          </motion.p>
-        )}
-        <motion.button
-          initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.5 }}
-          whileTap={{ scale:0.92 }}
-          onClick={() => window.location.reload()}
-          className="px-10 py-3 rounded-2xl font-bold text-black text-base"
-          style={{ background:'linear-gradient(135deg,#F5A623,#FF6B00)', fontFamily:'Syne,sans-serif',
-            boxShadow:'0 4px 20px rgba(245,166,35,0.5)' }}
-        >
-          Play Again
-        </motion.button>
-      </div>
+      <VictoryOverlay
+        iWon={iWon}
+        winnerName={winner?.username}
+        prize={ludoState.winnerPrize}
+        onPlayAgain={() => window.location.reload()}
+      />
     );
   }
 
@@ -150,7 +134,7 @@ export default function LudoScreen() {
       {gameState !== 'active' && (
         <div className="flex gap-2">
           <motion.button whileTap={{ scale:0.94 }}
-            onClick={() => setShowCreator(true)}
+            onClick={() => { sfx.click(); setShowCreator(true); }}
             className="flex-1 py-3 rounded-xl font-bold text-sm text-black"
             style={{
               fontFamily:'Syne,sans-serif',
@@ -161,6 +145,7 @@ export default function LudoScreen() {
           </motion.button>
           <motion.button whileTap={{ scale:0.94 }}
             onClick={() => {
+              sfx.click();
               const opening = !showRooms;
               setShowRooms(opening);
               if (opening) {
@@ -222,19 +207,22 @@ export default function LudoScreen() {
 
       {/* Board */}
       {(gameState === 'active' || gameState === 'idle') && (
-        <LudoBoard
-          players={players}
-          boardState={boardState}
-          currentTurnTelegramId={currentTurn}
-          telegramId={telegramId}
-          onPieceClick={handlePieceClick}
-          diceValue={diceValue}
-        />
+        <motion.div animate={{ scale: rolling ? 1.015 : 1 }} transition={{ duration: 0.35, ease: 'easeOut' }}>
+          <LudoBoard
+            players={players}
+            boardState={boardState}
+            currentTurnTelegramId={currentTurn}
+            telegramId={telegramId}
+            onPieceClick={handlePieceClick}
+            diceValue={diceValue}
+            lastMove={ludoState?.lastMove}
+          />
+        </motion.div>
       )}
 
       {/* Dice — only during active game */}
       {gameState === 'active' && (
-        <div className="bg-[#181C27] border border-[#2A2F45] rounded-2xl p-5">
+        <div className="rounded-2xl p-5" style={{ background: LUDO_PALETTE.card, border: `1px solid ${LUDO_PALETTE.grid}22` }}>
           <LudoDice
             value={diceValue}
             rolling={rolling}
