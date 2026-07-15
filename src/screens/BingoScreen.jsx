@@ -378,4 +378,231 @@ export default function BingoScreen() {
       if (bingoState.roomId) setRoomId(bingoState.roomId);
       setView('cards');
     }
-  }, []); //
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Switch to game view when game starts
+  useEffect(() => {
+    if (roomStateRef === 'active' && view === 'waiting') {
+      setView('game');
+    }
+  }, [roomStateRef, view]);
+
+  // ✅ FIX #6 — Live-update the 200-card grid when ANY player buys a card.
+  //
+  // The server already emits 'bingo:cardTaken' on every purchase
+  // (see BingoRoom.buyCard), but nothing listened for it on the client.
+  // Without this, a player browsing the card grid would see cards as
+  // "available" that other players had already bought seconds earlier —
+  // they'd only find out it was taken after clicking it and getting a
+  // rejection from the server.
+  //
+  // Scoped to `roomId` and only active while the grid is actually visible
+  // ('cards' or 'waiting' view) so it doesn't leak updates into unrelated
+  // rooms or fire after the player has moved on.
+  useEffect(() => {
+    if (!socket || !roomId) return;
+    if (view !== 'cards' && view !== 'waiting') return;
+
+    const handleCardTaken = (d) => {
+      if (d.roomId !== roomId) return; // ignore other rooms' broadcasts
+      setRoomCards((prev) =>
+        prev.map((c) =>
+          c.cardNumber === d.cardNumber ? { ...c, isTaken: true } : c
+        )
+      );
+    };
+
+    socket.on('bingo:cardTaken', handleCardTaken);
+    return () => socket.off('bingo:cardTaken', handleCardTaken);
+  }, [socket, roomId, view]);
+
+  const handleSelectStake = useCallback((stake) => {
+    setStake(stake);
+    setBuyError('');
+    setView('loading');
+
+    // Clear cards from any previous room so they don't bleed into this room's waiting screen
+    setBingoState(prev => prev ? { ...prev, ownedCards: [], roomId: null } : null);
+    setSelected([]);
+
+    // ✅ Check if socket is connected first
+    if (!getBingoCards) {
+      setBuyError('Not connected to server. Please try again.');
+      setView('stakes');
+      return;
+    }
+
+    // ✅ Add 10 second timeout in case server doesn't respond
+    const timeout = setTimeout(() => {
+      setBuyError('Server took too long. Please try again.');
+      setView('stakes');
+    }, 10000);
+
+    getBingoCards(stake, (res) => {
+      clearTimeout(timeout);
+      if (res?.success) {
+        setRoomCards(res.cards || []);
+        setRoomId(res.roomId);
+        setRoomState(res.state);
+        setView('cards');
+      } else {
+        setBuyError(res?.message || 'Failed to load cards. Please try again.');
+        setView('stakes');
+      }
+    });
+  }, [getBingoCards, setBingoState]);
+
+  const handleToggleCard = (cardNumber) => {
+    setSelected(prev =>
+      prev.includes(cardNumber)
+        ? prev.filter(n => n !== cardNumber)
+        : [...prev, cardNumber]
+    );
+  };
+
+  const handleBuy = async () => {
+    if (selectedCards.length === 0) return;
+    setBuying(true);
+    setBuyError('');
+
+    // Buy cards one by one
+    let successCount = 0;
+    for (const cardNumber of selectedCards) {
+      await new Promise(resolve => {
+        buyBingoCard(selectedStake, cardNumber, (res) => {
+          if (res?.success) {
+            successCount++;
+            // Update room cards
+            setRoomCards(prev => prev.map(c =>
+              c.cardNumber === cardNumber ? { ...c, isTaken: true } : c
+            ));
+            setRoomId(res.roomId);
+          } else {
+            setBuyError(res?.message || 'Failed to buy card.');
+          }
+          resolve();
+        });
+      });
+    }
+
+    setBuying(false);
+    setSelected([]);
+
+    if (successCount > 0) {
+      setView('waiting');
+    }
+  };
+
+  const handleClaim = () => {
+    const rId = bingoState?.roomId || roomId;
+    if (!rId) return;
+    claimBingo(rId, (res) => {
+      setClaimResult(res);
+      if (res?.isWinner) {
+        setVictory(true);
+        setVictoryPrize(res.winnerPrize);
+      }
+    });
+  };
+
+  const handleBack = () => {
+    if (view === 'cards')   { setView('stakes'); setSelected([]); }
+    if (view === 'waiting') { setView('cards'); }
+  };
+
+  return (
+    <div className="relative flex flex-col gap-4 p-4 pb-6 min-h-full">
+      <AnimatePresence>
+        {victory && (
+          <BingoVictory prize={victoryPrize} onClose={() => { setVictory(false); setView('stakes'); setBingoState(null); }} />
+        )}
+      </AnimatePresence>
+
+      {/* Back button */}
+      {(view === 'cards' || view === 'waiting') && (
+        <button onClick={handleBack} className="flex items-center gap-1 text-gray-400 text-sm w-fit">
+          ← Back
+        </button>
+      )}
+
+      {/* ── Loading view ── */}
+      {view === 'loading' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}
+          className="flex flex-col items-center justify-center gap-4 py-16">
+          <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:0.8, ease:'linear' }}
+            className="w-10 h-10 border-3 border-[#F5A623] border-t-transparent rounded-full" />
+          <p className="text-gray-400 text-sm">Loading cards for {selectedStake} Birr room…</p>
+        </motion.div>
+      )}
+
+      {/* ── Stakes view ── */}
+      {view === 'stakes' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
+          {buyError && (
+            <div className="bg-red-950/40 border border-red-500/30 rounded-xl px-4 py-3 mb-3 text-center">
+              <p className="text-red-400 text-sm">{buyError}</p>
+              <button onClick={() => setBuyError('')} className="text-xs text-gray-500 mt-1">Dismiss</button>
+            </div>
+          )}
+          <StakeSelector onSelect={handleSelectStake} balance={balance}
+            activeStake={['active','countdown','waiting'].includes(bingoState?.state) ? bingoState?.stake : null}
+            onResume={() => setView('game')} />
+        </motion.div>
+      )}
+
+      {/* ── Cards view ── */}
+      {view === 'cards' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
+          <CardGrid
+            stake={selectedStake}
+            roomCards={roomCards}
+            selectedCards={selectedCards}
+            onToggleCard={handleToggleCard}
+            onBuy={handleBuy}
+            balance={balance}
+            buying={buying}
+            roomId={roomId}
+            roomState={roomState}
+          />
+          {buyError && <p className="text-xs text-red-400 text-center mt-2">{buyError}</p>}
+        </motion.div>
+      )}
+
+      {/* ── Waiting view ── */}
+      {view === 'waiting' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} className="flex flex-col gap-4">
+          <div className="bg-[#181C27] border border-[#2A2F45] rounded-2xl p-6 flex flex-col items-center gap-4 text-center">
+            <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:2, ease:'linear' }}
+              className="w-16 h-16 border-4 border-[#F5A623] border-t-transparent rounded-full" />
+            <div>
+              <p className="text-white font-bold" style={{fontFamily:'Syne,sans-serif'}}>
+                {bingoState?.state === 'countdown' ? '⏱ Game Starting Soon!' : '⏳ Waiting for Players…'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {bingoState?.playerCount || 1} player(s) joined
+              </p>
+            </div>
+            <div className="w-full">
+              <p className="text-xs text-gray-500 mb-2">Your cards:</p>
+              <div className="flex gap-2 flex-wrap justify-center">
+                {(bingoState?.ownedCards || []).map(c => (
+                  <span key={c.cardNumber} className="px-2 py-1 bg-[#F5A623]/20 text-[#F5A623] rounded-lg text-xs font-bold">
+                    #{c.cardNumber}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── Game view ── */}
+      {view === 'game' && (
+        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
+          <ActiveGame bingoState={bingoState} onClaim={handleClaim} claimResult={claimResult}
+            onBack={() => { setView('stakes'); setBingoState(null); setRoomId(null); setRoomCards([]); setSelected([]); setStake(null); setClaimResult(null); }} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
