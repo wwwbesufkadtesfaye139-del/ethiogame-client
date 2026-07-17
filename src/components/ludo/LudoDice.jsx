@@ -1,21 +1,35 @@
 /**
- * LudoDice.jsx — a real 3D die (6 rendered faces in CSS 3D space), not a flat
- * sprite that swaps images. Same public props as before: value, rolling,
- * canRoll, onRoll.
+ * LudoDice.jsx — 2D dice roll (replaces the earlier 3D CSS-cube version,
+ * which didn't read as impressive in practice). Same public props as
+ * before: value, rolling, canRoll, onRoll — nothing else in the app needed
+ * to change for this swap.
  *
- * Face → value mapping matches a physical die (opposite faces sum to 7):
- *   front=1, back=6, right=2, left=5, top=3, bottom=4
+ * Since a flat die can't physically tumble, the "this feels alive" work is
+ * done by two things happening together:
+ *   1. A big squash/bounce/spin arc (2D transforms only: y, rotate, scaleX,
+ *      scaleY) — the physical motion.
+ *   2. A rapid face flicker (~70ms per tick) cycling through random values
+ *      while the real result is still in flight — this is what actually
+ *      sells randomness on a flat die, the same trick most mobile dice
+ *      games use.
  *
- * Roll sequence (~900ms, matches spec): lift → multi-axis spin → bounce →
- * land → tiny settle shake → resting on the true result. The landing
- * rotation is computed deterministically per value, so the die always shows
- * the real (server-verified) roll — the spin is just choreography on top.
+ * The flicker always locks onto the real, server-verified `value` the
+ * moment it arrives — it never guesses or fakes the final number, only the
+ * in-between frames while waiting are random.
+ *
+ * Timing is split into two phases so it holds up under real network
+ * latency instead of assuming the server answers instantly:
+ *   - PRIMING (rolling=true, value still null): a light continuous jitter +
+ *     flicker, however long the round-trip actually takes.
+ *   - LANDING (value arrives): a fixed ~900ms bounce/spin/settle sequence,
+ *     keyed so it always starts clean from rotate 0 — see the rollId effect
+ *     below for why.
  */
 import { motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 
 const SIZE = 84;
-const HALF = SIZE / 2;
+const FLICKER_MS = 70;
 
 const DOTS = {
   1: [[50, 50]],
@@ -25,29 +39,6 @@ const DOTS = {
   5: [[27, 27], [73, 27], [50, 50], [27, 73], [73, 73]],
   6: [[27, 23], [73, 23], [27, 50], [73, 50], [27, 77], [73, 77]],
 };
-
-// Each face's own placement inside the cube (static, never animates).
-const FACES = [
-  { value: 1, place: `translateZ(${HALF}px)` },
-  { value: 6, place: `rotateY(180deg) translateZ(${HALF}px)` },
-  { value: 2, place: `rotateY(90deg) translateZ(${HALF}px)` },
-  { value: 5, place: `rotateY(-90deg) translateZ(${HALF}px)` },
-  { value: 3, place: `rotateX(90deg) translateZ(${HALF}px)` },
-  { value: 4, place: `rotateX(-90deg) translateZ(${HALF}px)` },
-];
-
-// The cube-level rotation that brings each value's face to point at the
-// viewer (inverse of that face's own placement rotation above).
-const FINAL_ROTATION = {
-  1: { x: 0, y: 0 },
-  6: { x: 0, y: 180 },
-  2: { x: 0, y: -90 },
-  5: { x: 0, y: 90 },
-  3: { x: -90, y: 0 },
-  4: { x: 90, y: 0 },
-};
-
-const IDLE_TILT = { x: -16, y: 26 };
 
 function Pips({ value }) {
   return (
@@ -72,53 +63,45 @@ function Pips({ value }) {
   );
 }
 
-function Face({ value, place }) {
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        borderRadius: 18,
-        background: 'linear-gradient(145deg, #FCFCFD 0%, #E9EBF2 55%, #C7CBD8 100%)',
-        border: '1px solid rgba(0,0,0,0.18)',
-        boxShadow: 'inset 0 2px 3px rgba(255,255,255,0.9), inset 0 -6px 8px rgba(0,0,0,0.14)',
-        transform: place,
-        backfaceVisibility: 'hidden',
-      }}
-    >
-      <Pips value={value} />
-      {/* glossy sheen, top-left */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 5,
-          left: 5,
-          right: '38%',
-          height: '32%',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.7), rgba(255,255,255,0))',
-          borderRadius: 14,
-          pointerEvents: 'none',
-        }}
-      />
-    </div>
-  );
-}
+const LANDING_TIMES = [0, 0.06, 0.32, 0.55, 0.72, 0.88, 1];
 
 export default function LudoDice({ value, rolling, canRoll, onRoll }) {
+  const [displayValue, setDisplayValue] = useState(value || 1);
   const [rollId, setRollId] = useState(0);
-  const prevValueRef = useRef(value);
+  const flickerTimerRef = useRef(null);
+  const prevRollingRef = useRef(rolling);
   const active = canRoll && !rolling;
 
-  // Fire a fresh, self-contained landing animation every time a *new* real
-  // result comes in from the server — never guessed client-side.
+  // A fresh roll started (rolling flipped false → true, i.e. right on
+  // click): remount the die's animation so rotation always starts clean
+  // from 0. Without this, the previous roll's resting rotation (720°, which
+  // *looks* like 0° but isn't stored as 0) would make the next roll's
+  // keyframes jump instead of spin smoothly.
   useEffect(() => {
-    if (value && value !== prevValueRef.current) {
+    if (rolling && !prevRollingRef.current) {
       setRollId((id) => id + 1);
     }
-    prevValueRef.current = value;
-  }, [value]);
+    prevRollingRef.current = rolling;
+  }, [rolling]);
 
-  const final = FINAL_ROTATION[value] || FINAL_ROTATION[1];
+  // Rapid face flicker while the real result is still in flight.
+  useEffect(() => {
+    if (rolling) {
+      flickerTimerRef.current = setInterval(() => {
+        setDisplayValue(1 + Math.floor(Math.random() * 6));
+      }, FLICKER_MS);
+      return () => clearInterval(flickerTimerRef.current);
+    }
+  }, [rolling]);
+
+  // The moment the real, server-verified value shows up: lock the face to
+  // it immediately (never guessed) and let the landing animation play out.
+  useEffect(() => {
+    if (value) {
+      clearInterval(flickerTimerRef.current);
+      setDisplayValue(value);
+    }
+  }, [value]);
 
   const handleRoll = () => {
     if (active) onRoll();
@@ -126,70 +109,80 @@ export default function LudoDice({ value, rolling, canRoll, onRoll }) {
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div style={{ width: SIZE, height: SIZE, perspective: 480 }}>
-        {/* Contact shadow, grounds the cube so the lift/bounce reads clearly */}
+      <div style={{ width: SIZE, height: SIZE }}>
+        {/* Contact shadow, grounds the die so the bounce reads clearly */}
         <motion.div
           key={`shadow-${rollId}`}
-          initial={{ opacity: 0.35, scaleX: 1 }}
+          initial={{ opacity: 0.3, scaleX: 1 }}
           animate={
             value
-              ? {
-                  scaleX: [1, 0.55, 0.85, 0.6, 0.92, 0.72, 1],
-                  opacity: [0.35, 0.16, 0.3, 0.18, 0.32, 0.22, 0.35],
-                }
-              : { scaleX: [1, 0.92, 1], opacity: [0.3, 0.22, 0.3] }
+              ? { scaleX: [1, 0.55, 0.85, 0.6, 0.92, 0.72, 1], opacity: [0.3, 0.14, 0.28, 0.16, 0.3, 0.2, 0.3] }
+              : rolling
+                ? { scaleX: [1, 0.85, 1], opacity: [0.26, 0.16, 0.26] }
+                : { scaleX: [1, 0.92, 1], opacity: [0.24, 0.18, 0.24] }
           }
           transition={
             value
-              ? { duration: 0.9, times: [0, 0.15, 0.35, 0.55, 0.78, 0.92, 1], ease: 'easeInOut' }
-              : { duration: 1.6, repeat: canRoll ? Infinity : 0, ease: 'easeInOut' }
+              ? { duration: 0.9, times: LANDING_TIMES, ease: 'easeInOut' }
+              : { duration: rolling ? 0.5 : 1.6, repeat: Infinity, ease: 'easeInOut' }
           }
           style={{
-            width: SIZE * 0.8,
-            height: SIZE * 0.22,
-            margin: '0 auto',
-            marginTop: SIZE * 0.86,
+            width: SIZE * 0.75,
+            height: SIZE * 0.2,
+            margin: '4px auto 0',
             borderRadius: '50%',
             background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.55), rgba(0,0,0,0) 70%)',
-            position: 'relative',
-            top: -SIZE,
           }}
         />
 
         <motion.div
           key={rollId}
           onClick={handleRoll}
-          initial={{ rotateX: IDLE_TILT.x, rotateY: IDLE_TILT.y, rotateZ: 0, y: 0, scale: 1 }}
+          initial={{ y: 0, rotate: 0, scaleX: 1, scaleY: 1 }}
           animate={
             value
               ? {
-                  rotateX: [IDLE_TILT.x, 210, 470, 690, final.x + 380, final.x - 6, final.x],
-                  rotateY: [IDLE_TILT.y, -150, 300, 560, final.y + 300, final.y + 8, final.y],
-                  rotateZ: [0, 16, -22, 12, -6, 3, 0],
-                  y: [0, -26, -8, -20, -2, 6, 0],
-                  scale: [1, 1.12, 0.94, 1.08, 0.97, 1.03, 1],
+                  y:      [0, 3, -34, -10, -20, 0, 0],
+                  rotate: [0, 0, 200, 430, 620, 720, 720],
+                  scaleX: [1, 1.08, 0.92, 1.05, 0.95, 1.08, 1],
+                  scaleY: [1, 0.9, 1.08, 0.95, 1.06, 0.92, 1],
                 }
-              : { rotateX: IDLE_TILT.x, rotateY: IDLE_TILT.y, y: canRoll ? [0, -5, 0] : 0 }
+              : rolling
+                ? { y: [0, -4, 0], rotate: [0, -4, 4, 0], scaleX: 1, scaleY: 1 }
+                : { y: canRoll ? [0, -5, 0] : 0, rotate: 0, scaleX: 1, scaleY: 1 }
           }
           transition={
             value
-              ? { duration: 0.9, times: [0, 0.15, 0.35, 0.55, 0.78, 0.92, 1], ease: 'easeInOut' }
-              : { duration: 1.6, repeat: canRoll && !value ? Infinity : 0, ease: 'easeInOut' }
+              ? { duration: 0.9, times: LANDING_TIMES, ease: 'easeInOut' }
+              : { duration: rolling ? 0.35 : 1.6, repeat: Infinity, ease: 'easeInOut' }
           }
           style={{
             width: '100%',
             height: '100%',
             position: 'relative',
-            transformStyle: 'preserve-3d',
+            borderRadius: 18,
             cursor: active ? 'pointer' : 'default',
-            filter: active
-              ? 'drop-shadow(0 10px 16px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(245,166,35,0.45))'
-              : 'drop-shadow(0 6px 10px rgba(0,0,0,0.5))',
+            background: 'linear-gradient(145deg, #FCFCFD 0%, #E9EBF2 55%, #C7CBD8 100%)',
+            border: '1px solid rgba(0,0,0,0.18)',
+            boxShadow: active
+              ? 'inset 0 2px 3px rgba(255,255,255,0.9), inset 0 -6px 8px rgba(0,0,0,0.14), 0 10px 16px rgba(0,0,0,0.45), 0 0 18px rgba(245,166,35,0.45)'
+              : 'inset 0 2px 3px rgba(255,255,255,0.9), inset 0 -6px 8px rgba(0,0,0,0.14), 0 6px 10px rgba(0,0,0,0.4)',
           }}
         >
-          {FACES.map((f) => (
-            <Face key={f.value} value={f.value} place={f.place} />
-          ))}
+          {/* Glossy sheen */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 5,
+              left: 5,
+              right: '38%',
+              height: '32%',
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.7), rgba(255,255,255,0))',
+              borderRadius: 14,
+              pointerEvents: 'none',
+            }}
+          />
+          <Pips value={displayValue} />
         </motion.div>
       </div>
 
