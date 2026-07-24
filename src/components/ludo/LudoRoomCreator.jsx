@@ -89,6 +89,16 @@ export default function LudoRoomCreator({ onClose, onCreate, isCreator, roomId, 
     );
   }
 
+  // FEE CHANGE (per Besu, July 2026): this preview used to show a flat
+  // "−{maxP} Br" (1 Birr per player) fee, which stopped matching reality
+  // once the server moved to a 10%-of-pool fee — mirrors BrokerService.js's
+  // calculatePrize() exactly (including the floor-to-2-decimals rounding)
+  // so this preview can't drift from what the server actually pays out.
+  const FEE_PERCENT = 0.10;
+  const totalPool   = stake * maxP;
+  const platformFee = Math.floor(totalPool * FEE_PERCENT * 100) / 100;
+  const winnerPrize = Math.round((totalPool - platformFee) * 100) / 100;
+
   return (
     <div className="bg-[#181C27] rounded-t-2xl p-5 flex flex-col gap-5">
       {/* Handle */}
@@ -124,16 +134,16 @@ export default function LudoRoomCreator({ onClose, onCreate, isCreator, roomId, 
         <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Prize Summary</p>
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">Total Pool</span>
-          <span className="text-white font-mono font-bold">{stake * maxP} Br</span>
+          <span className="text-white font-mono font-bold">{totalPool} Br</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Platform Fee</span>
-          <span className="text-red-400 font-mono">−{maxP} Br</span>
+          <span className="text-gray-400">Platform Fee (10%)</span>
+          <span className="text-red-400 font-mono">−{platformFee} Br</span>
         </div>
         <div className="h-px bg-[#2A2F45] my-0.5" />
         <div className="flex justify-between">
           <span className="text-gray-300 font-semibold">Winner Prize</span>
-          <span className="text-[#F5A623] font-mono font-bold text-base">{stake * maxP - maxP} Br</span>
+          <span className="text-[#F5A623] font-mono font-bold text-base">{winnerPrize} Br</span>
         </div>
       </div>
 
